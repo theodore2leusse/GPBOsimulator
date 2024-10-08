@@ -97,8 +97,6 @@ if __name__ == "__main__":
                          dtype=torch.float64)
     P_std_pred = torch.zeros((nb_emg, NB_REP, 1, nb_it, space_size), # save the std distribution pred for each it
                          dtype=torch.float64)
-    # perf_explore = np.zeros((nb_emg, NB_REP, nb_it))     # list exploration performance 
-    # perf_exploit = np.zeros((nb_emg, NB_REP, nb_it))     # list exploitation performance 
 
     tic = time.time()
 
@@ -199,21 +197,6 @@ if __name__ == "__main__":
 
                 best_pred_x_measured[emg_i, r, 0, i] = torch.argmax(gp_mean_pred).item() # update the tensor
         
-    # for emg_i in range(nb_emg):
-
-    #     for r in range(NB_REP):
-
-    #         for i in range(nb_it):
-
-    #             best_x = best_pred_x[emg_i, r, 0, i] # best prediction's electrode_id that has 
-    #                                                  # already been measured (int)
-    #             perf_explore[emg_i,r,i] = (ds.set['sorted_respMean'][best_x, emg_i] /
-    #                                     np.max(ds.set['sorted_respMean'][:, emg_i])) # update the array 
-                              
-    #             curr_x = P_test_x_idx[emg_i, r, 0, i] # last electrode_id evaluated (int)
-    #             perf_exploit[emg_i,r,i] = (ds.set['sorted_respMean'][curr_x, emg_i] /
-    #                                     np.max(ds.set['sorted_respMean'][:, emg_i])) # update the array
-
 
     tac = time.time()
 
@@ -232,5 +215,3 @@ if __name__ == "__main__":
              rand_idx = rand_idx,
              elapsed_time = elapsed_time,
              **ds.set)
-             # perf_explore = perf_explore, 
-             # perf_exploit = perf_exploit,
