@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import norm
 
-from botorch.models import SingleTaskGP
+from botorch.models.gp_regression import SingleTaskGP
 from botorch.fit import fit_gpytorch_mll
 from botorch.utils.transforms import standardize, normalize
 from gpytorch.mlls import ExactMarginalLogLikelihood
@@ -54,11 +54,11 @@ if __name__ == "__main__":
                # before using the acquisition function.     
     KAPPA = 10 # parameter for the acquisition function 
 
-    AF = 'EI'  #  choice of the acquisition fonction among 'EI', 'NEI', 'logEI', 'logNEI'
+    AF = 'NEI'  #  choice of the acquisition fonction among 'EI', 'NEI', 'logEI', 'logNEI'
 
     ## ------------------------ Data Set ------------------------ ##
 
-    ds = DataSet('data/','nhp','Cebus1_M1_190221.mat','first_GPBO_realisticResponses')
+    ds = DataSet('data/','nhp','Cebus1_M1_190221.mat','first_GPBO_validResponses')
     ds.load_matlab_data() # load data from the dataset_file
         
     nb_emg = len(ds.set['emgs'])          # nb of emgs
@@ -97,6 +97,14 @@ if __name__ == "__main__":
                          dtype=torch.float64)
     P_std_pred = torch.zeros((nb_emg, NB_REP, 1, nb_it, space_size), # save the std distribution pred for each it
                          dtype=torch.float64)
+    iter_durations = torch.zeros((nb_emg, NB_REP, 1, nb_it),      # save the iteration duration for each it
+                         dtype=torch.float64)
+    hyp_opti_durations = torch.zeros((nb_emg, NB_REP, 1, nb_it),  # save the hyperparameter optimization duration for each it
+                         dtype=torch.float64)
+    mean_calc_durations = torch.zeros((nb_emg, NB_REP, 1, nb_it), # save the mean calculation duration for each it
+                         dtype=torch.float64)
+    std_calc_durations = torch.zeros((nb_emg, NB_REP, 1, nb_it),  # save the std calculation duration for each it
+                         dtype=torch.float64)
 
     tic = time.time()
 
@@ -112,6 +120,8 @@ if __name__ == "__main__":
 
             # loop over the number of node in our grid
             for i in range(nb_it):
+
+                tic_it = time.perf_counter()
 
                 if i < NB_RND: # we chose the next node randomly with next_x_idx
 
@@ -149,7 +159,7 @@ if __name__ == "__main__":
                 
                 queried_loc.append(next_x_idx) # update the list with the next_x_idx we have just chosen
                 next_x = X_test_normed[next_x_idx] # entry coordonates for the next query
-                resp = ds.get_realistic_response(emg_i, next_x_idx) # get the response of this query (float)
+                resp = ds.get_valid_response(emg_i, next_x_idx) # get the response of this query (float)
 
                 P_test_x[emg_i, r, :, i] = next_x             # update the tensor 
                 P_test_x_idx[emg_i, r, 0, i] = next_x_idx     # update the tensor
@@ -182,11 +192,23 @@ if __name__ == "__main__":
                     gp = SingleTaskGP(train_X, train_Y) # create the GP model
                 
                 mll = ExactMarginalLogLikelihood(gp.likelihood, gp) # create the log likelihood function 
-                fit_gpytorch_mll(mll) # optimize the hyperparameters of the GP 
+
+                tic_hyp = time.perf_counter()
+                fit_gpytorch_mll(mll) # optimize the hyperparameters of the GP
+                tac_hyp = time.perf_counter()
+                hyp_dur = tac_hyp - tic_hyp
+
+                tic_mean = time.perf_counter() 
                 gp_mean_pred = gp.posterior(X_test_normed).mean.flatten() # GP prediction for the mean
+                tac_mean = time.perf_counter()
+                mean_dur = tac_mean - tic_mean
+
                 best_pred_x[emg_i, r, 0, i] = torch.argmax(gp_mean_pred).item() # update the tensor
-                
-                gp_std_pred = torch.sqrt(gp.posterior(X_test_normed).variance.flatten())
+
+                tic_std = time.perf_counter()
+                gp_std_pred = torch.sqrt(gp.posterior(X_test_normed).variance.flatten()) # GP prediction for the variance
+                tac_std = time.perf_counter()
+                std_dur = tac_std - tic_std
 
                 P_mean_pred[emg_i, r, 0, i, :] = gp_mean_pred   # update the tensor 
                 P_std_pred[emg_i, r, 0, i, :] = gp_std_pred     # update the tensor
@@ -196,10 +218,17 @@ if __name__ == "__main__":
                 gp_mean_pred[not_queried_loc] = -np.inf
 
                 best_pred_x_measured[emg_i, r, 0, i] = torch.argmax(gp_mean_pred).item() # update the tensor
-        
+
+                tac_it = time.perf_counter()
+                iter_dur = tac_it - tic_it
+
+                iter_durations[emg_i, r, 0, i] = iter_dur
+                hyp_opti_durations[emg_i, r, 0, i] = hyp_dur
+                mean_calc_durations[emg_i, r, 0, i] = mean_dur
+                std_calc_durations[emg_i, r, 0, i] = std_dur
+
 
     tac = time.time()
-
     # Calculate and display the elapsed time
     elapsed_time = tac - tic
     print(f"Elapsed time: {elapsed_time} seconds")
@@ -214,4 +243,8 @@ if __name__ == "__main__":
              best_pred_x_measured = best_pred_x_measured,
              rand_idx = rand_idx,
              elapsed_time = elapsed_time,
+             iter_durations = iter_durations,
+             hyp_opti_durations = hyp_opti_durations,
+             mean_calc_durations = mean_calc_durations,
+             std_calc_durations = std_calc_durations,
              **ds.set)

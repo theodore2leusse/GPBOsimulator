@@ -56,9 +56,14 @@ class PostProcessor():
         self.dataset_name = dataset_name
         self.data = {}
 
-    def load_data(self) -> None:
+    def load_data(self, load_mean: bool = False, load_std: bool = False, load_durations = False) -> None:
         """
         load the data of the npz file 
+
+        Args:
+            load_mean (bool, optional): True if you want to load the mean for each it. Defaults to 'False'.
+            load_std (bool, optional): True if you want to load the std for each it. Defaults to 'False'.
+            load_durations (bool, optional): True if you want to load the different durations for each it. Defaults to 'False'.
 
         Update:
             SET (dict): dict_keys(['emgs', 'nChan', 'sorted_isvalid', 'sorted_resp',
@@ -99,9 +104,9 @@ class PostProcessor():
         self.P_test_x = self.data['P_test_x']            # Tensor storing queries' entry coordinates 
         self.P_test_x_idx = self.data['P_test_x_idx']    # Tensor storing queries' entry idx
         self.P_test_y = self.data['P_test_y']            # Tensor storing the corresponding responses to the queries
-        if 'P_mean_pred' in self.data.files: 
+        if load_mean: 
             self.P_mean_pred = self.data['P_mean_pred']  # Tensor storing mean in the search space after each iteration 
-        if 'P_std_pred' in self.data.files:
+        if load_std:
             self.P_std_pred = self.data['P_std_pred']    # Tensor storing standard deviation in the search space after each iteration 
         self.best_pred_x = self.data['best_pred_x']      # Tensor listing the  node_id where is the best predictions ; shape = (nb_emg, nb_rep, 1, nb_it)
         self.best_pred_x_measured = self.data['best_pred_x_measured'] # Tensor listing the  node_id where is the best predictions, including only measured nodes ; shape = (nb_emg, nb_rep, 1, nb_it)
@@ -111,6 +116,12 @@ class PostProcessor():
         self.nb_emg = self.P_test_x_idx.shape[0]         # nb of emgs used in the simulation
         self.NB_REP = self.P_test_x_idx.shape[1]         # nb of repetitions used in the simulation
         self.nb_it = self.P_test_x_idx.shape[3]          # nb of iterations used in the simulation
+        if load_durations:
+            self.elapsed_time = self.data['elapsed_time']               # save the simulation duration
+            self.iter_durations = self.data['iter_durations']           # save the iteration duration for each it
+            self.hyp_opti_durations = self.data['hyp_opti_durations']   # save the hyperparameters' optimization duration for each it
+            self.mean_calc_durations = self.data['mean_calc_durations'] # save the mean calculation duration for each it
+            self.std_calc_durations = self.data['std_calc_durations']   # save the std calculation duration for each it
 
     def exploration(self, emgs_idx: list[int] = None, REP_idx: list[int] = None, status: str = 'offline') ->  np.ndarray:
         """
@@ -187,6 +198,36 @@ class PostProcessor():
             emg_i_id += 1
         return(np.mean(perf_exploit, axis = (0,1)))
     
+    def duration_metrics(self, emgs_idx: list[int] = None, REP_idx: list[int] = None) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Calculate the duration metrics. This metric consists of averaging the various calculation 
+        times over emgs and repetitions. 
+
+        Args:
+            emgs_idx (list[int], optional): list of the emgs you want to consider to calculate the 
+                                            metric. Defaults to None what correspond to all the emgs.
+            REP_idx (list[int], optional): list of the repitutions you want to consider to calculate 
+                                           the metric. Defaults to None what correspond to all the 
+                                           repetitions.
+
+        Returns:
+            tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: 
+                A tuple containing four numpy arrays, each with shape (nb_it):
+                    - perf_iter (np.ndarray): The mean duration of each iteration.
+                    - perf_hyp (np.ndarray): The mean duration of the hyperparameter optimization.
+                    - perf_mean (np.ndarray): The mean duration of mean calculation.
+                    - perf_std (np.ndarray): The mean duration of standard deviation calculation.
+        """
+        if emgs_idx is None:
+            emgs_idx = list(range(self.nb_emg))
+        if REP_idx is None:
+            REP_idx = list(range(self.NB_REP))
+        perf_iter = np.mean(self.iter_durations[emgs_idx, REP_idx, :], axis = (0,1))      #
+        perf_hyp = np.mean(self.hyp_opti_durations[emgs_idx, REP_idx, :], axis = (0,1))
+        perf_mean = np.mean(self.mean_calc_durations[emgs_idx, REP_idx, :], axis = (0,1))
+        perf_std = np.mean(self.std_calc_durations[emgs_idx, REP_idx, :], axis = (0,1))
+        return(perf_iter, perf_hyp, perf_mean, perf_std)
+
 
 
 
