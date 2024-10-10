@@ -222,7 +222,7 @@ class PostProcessor():
             emgs_idx = list(range(self.nb_emg))
         if REP_idx is None:
             REP_idx = list(range(self.NB_REP))
-        perf_iter = np.mean(self.iter_durations[emgs_idx, REP_idx, :], axis = (0,1))      #
+        perf_iter = np.mean(self.iter_durations[emgs_idx, REP_idx, :], axis = (0,1))      
         perf_hyp = np.mean(self.hyp_opti_durations[emgs_idx, REP_idx, :], axis = (0,1))
         perf_mean = np.mean(self.mean_calc_durations[emgs_idx, REP_idx, :], axis = (0,1))
         perf_std = np.mean(self.std_calc_durations[emgs_idx, REP_idx, :], axis = (0,1))

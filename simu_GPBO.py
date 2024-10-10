@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import norm
 
-from botorch.models.gp_regression import SingleTaskGP
+from botorch.models import SingleTaskGP
 from botorch.fit import fit_gpytorch_mll
 from botorch.utils.transforms import standardize, normalize
 from gpytorch.mlls import ExactMarginalLogLikelihood
@@ -175,22 +175,22 @@ if __name__ == "__main__":
                             # If there is only one maximum index, directly assign it as the next test point index.
                             next_x_idx = next_x_idx[0]
                     
-                    queried_loc.append(next_x_idx) # update the list with the next_x_idx we have just chosen
-                    next_x = X_test_normed[next_x_idx] # entry coordonates for the next query
+                    queried_loc.append(next_x_idx)                  # update the list with the next_x_idx we have just chosen
+                    next_x = X_test_normed[next_x_idx]              # entry coordonates for the next query
                     resp = ds.get_valid_response(emg_i, next_x_idx) # get the response of this query (float)
 
                     P_test_x[emg_i, r, :, i] = next_x             # update the tensor 
                     P_test_x_idx[emg_i, r, 0, i] = next_x_idx     # update the tensor
                     P_test_y[emg_i, r, 0, i] = resp.astype(float) # update the tensor
 
-                    train_X = P_test_x[emg_i, r, :, :int(i+1)] # only focus on what have been updated in
-                                                            # P_test_x[emg_i, r] (2d-tensor)
-                    train_X = train_X.T                        # transpose the tensor => shape(2,nb_queries)
+                    train_X = P_test_x[emg_i, r, :, :int(i+1)]    # only focus on what have been updated in
+                                                                  # P_test_x[emg_i, r] (2d-tensor)
+                    train_X = train_X.T                           # transpose the tensor => shape(2,nb_queries)
 
-                    train_Y = P_test_y[emg_i, r, 0, :int(i+1)] # only focus on what have been updated in
-                                                            # P_test_y[emg_i, r] (1d-tensor)
-                    train_Y = train_Y[...,np.newaxis]          # add a new final dimension in the tensor 
-                                                            # (2d-tensor) train_y is a column matrix
+                    train_Y = P_test_y[emg_i, r, 0, :int(i+1)]    # only focus on what have been updated in
+                                                                  # P_test_y[emg_i, r] (1d-tensor)
+                    train_Y = train_Y[...,np.newaxis]             # add a new final dimension in the tensor 
+                                                                  # (2d-tensor) train_y is a column matrix
 
                     if i == 0:
                         if resp != 0:
