@@ -32,6 +32,7 @@ from scipy.stats import multivariate_normal
 import pandas as pd
 import warnings
 import time
+from tqdm import tqdm
 
 ## ------------------------ IMPORT FILES ------------------------ ##
 
@@ -108,124 +109,130 @@ if __name__ == "__main__":
 
     tic = time.time()
 
-    # loop over the different emgs 
-    for emg_i in range(nb_emg):
-        
-        print('emg', emg_i)
-        
-        # loop over the different repetitions 
-        for r in range(NB_REP):     
+    # Initialize the global progress bar
+    with tqdm(total=nb_emg*NB_REP, desc="Global Progress", unit="iter") as pbar:
+
+        # loop over the different emgs 
+        for emg_i in range(nb_emg):
             
-            queried_loc = [] # initialization of the list of the next_x_idx
-
-            # loop over the number of node in our grid
-            for i in range(nb_it):
-
-                tic_it = time.perf_counter()
-
-                if i < NB_RND: # we chose the next node randomly with next_x_idx
-
-                    next_x_idx = rand_idx[emg_i, r, i]
-                    
-                else: # we have to choose an acquisition function 
-                    
-                    if AF == 'EI':      
-                        mu_sample_opt = torch.max(train_Y) # max of the queries' responses 
-                        AF_ = ExpectedImprovement(gp, best_f = mu_sample_opt, maximize = True)
-
-                    elif AF == 'NEI':                       
-                        AF_ = NoisyExpectedImprovement(gp, train_X, num_fantasies=20, maximize = True) 
-                        
-                    elif AF == 'logEI':                       
-                        mu_sample_opt = torch.max(train_Y) # max of the queries' responses
-                        AF_ = LogExpectedImprovement(gp, best_f = mu_sample_opt, maximize = True)                      
-                        
-                    elif AF == 'logNEI':                        
-                        AF_ = LogNoisyExpectedImprovement(gp, train_X, num_fantasies=20, maximize = True)  
-                                               
-                    elif AF == 'UCB':                  
-                        AF_ = UpperConfidenceBound(gp, beta = KAPPA, maximize = True)
-                                       
-                    ei_val = AF_(X_test_normed[:, None, :]) # the arg has to be in the shape 
-                                                            # (space_size,1,space_dim)
-                                                            # ei_val is a tensor of size space_size
-                    af_val = ei_val.detach().numpy()        # af_val is an array of size space_size  
-
-                    # choice of the next location we will try our black box function
-                    if next_x_idx.size > 1:    
-                        next_x_idx = np.random.choice(np.where(af_val==af_val.max())[0])
-                    else: 
-                        next_x_idx = np.where(af_val==af_val.max())[0][0]
+            print('emg', emg_i)
+            
+            # loop over the different repetitions 
+            for r in range(NB_REP):     
                 
-                queried_loc.append(next_x_idx) # update the list with the next_x_idx we have just chosen
-                next_x = X_test_normed[next_x_idx] # entry coordonates for the next query
-                resp = ds.get_valid_response(emg_i, next_x_idx) # get the response of this query (float)
+                queried_loc = [] # initialization of the list of the next_x_idx
 
-                P_test_x[emg_i, r, :, i] = next_x             # update the tensor 
-                P_test_x_idx[emg_i, r, 0, i] = next_x_idx     # update the tensor
-                P_test_y[emg_i, r, 0, i] = resp.astype(float) # update the tensor
+                # loop over the number of node in our grid
+                for i in range(nb_it):
 
-                train_X = P_test_x[emg_i, r, :, :int(i+1)] # only focus on what have been updated in
-                                                           # P_test_x[emg_i, r] (2d-tensor)
-                train_X = train_X.T                        # transpose the tensor => shape(2,nb_queries)
+                    tic_it = time.perf_counter()
 
-                train_Y = P_test_y[emg_i, r, 0, :int(i+1)] # only focus on what have been updated in
-                                                           # P_test_y[emg_i, r] (1d-tensor)
-                train_Y = train_Y[...,np.newaxis]          # add a new final dimension in the tensor 
-                                                           # (2d-tensor) train_y is a column matrix
+                    if i < NB_RND: # we chose the next node randomly with next_x_idx
 
-                if i == 0:
-                    if resp != 0:
-                        train_Y = train_Y/train_Y.max() # =1 
-                else:
-                    train_Y = standardize(train_Y) # (data-mean)/std
+                        next_x_idx = rand_idx[emg_i, r, i]
+                        
+                    else: # we have to choose an acquisition function 
+                        
+                        if AF == 'EI':      
+                            mu_sample_opt = torch.max(train_Y) # max of the queries' responses 
+                            AF_ = ExpectedImprovement(gp, best_f = mu_sample_opt, maximize = True)
 
-                if AF == 'NEI' or AF == 'logNEI':   
-                    train_Yvar = torch.full_like(train_Y, 0.15) # create a tensor which has the same shape
-                                                                # and type as train_y, but is filled with 
-                                                                # a constant value of 0.15.
-                                                                # train_Yvar allows to indicate the observed 
-                                                                # measurement noise for each measure
-                    gp = SingleTaskGP(train_X, train_Y, train_Yvar = train_Yvar) # create the GP model
+                        elif AF == 'NEI':                       
+                            AF_ = NoisyExpectedImprovement(gp, train_X, num_fantasies=20, maximize = True) 
+                            
+                        elif AF == 'logEI':                       
+                            mu_sample_opt = torch.max(train_Y) # max of the queries' responses
+                            AF_ = LogExpectedImprovement(gp, best_f = mu_sample_opt, maximize = True)                      
+                            
+                        elif AF == 'logNEI':                        
+                            AF_ = LogNoisyExpectedImprovement(gp, train_X, num_fantasies=20, maximize = True)  
+                                                
+                        elif AF == 'UCB':                  
+                            AF_ = UpperConfidenceBound(gp, beta = KAPPA, maximize = True)
+                                        
+                        ei_val = AF_(X_test_normed[:, None, :]) # the arg has to be in the shape 
+                                                                # (space_size,1,space_dim)
+                                                                # ei_val is a tensor of size space_size
+                        af_val = ei_val.detach().numpy()        # af_val is an array of size space_size  
+
+                        # choice of the next location we will try our black box function
+                        if next_x_idx.size > 1:    
+                            next_x_idx = np.random.choice(np.where(af_val==af_val.max())[0])
+                        else: 
+                            next_x_idx = np.where(af_val==af_val.max())[0][0]
                     
-                else:
-                    gp = SingleTaskGP(train_X, train_Y) # create the GP model
-                
-                mll = ExactMarginalLogLikelihood(gp.likelihood, gp) # create the log likelihood function 
+                    queried_loc.append(next_x_idx) # update the list with the next_x_idx we have just chosen
+                    next_x = X_test_normed[next_x_idx] # entry coordonates for the next query
+                    resp = ds.get_valid_response(emg_i, next_x_idx) # get the response of this query (float)
 
-                tic_hyp = time.perf_counter()
-                fit_gpytorch_mll(mll) # optimize the hyperparameters of the GP
-                tac_hyp = time.perf_counter()
-                hyp_dur = tac_hyp - tic_hyp
+                    P_test_x[emg_i, r, :, i] = next_x             # update the tensor 
+                    P_test_x_idx[emg_i, r, 0, i] = next_x_idx     # update the tensor
+                    P_test_y[emg_i, r, 0, i] = resp.astype(float) # update the tensor
 
-                tic_mean = time.perf_counter() 
-                gp_mean_pred = gp.posterior(X_test_normed).mean.flatten() # GP prediction for the mean
-                tac_mean = time.perf_counter()
-                mean_dur = tac_mean - tic_mean
+                    train_X = P_test_x[emg_i, r, :, :int(i+1)] # only focus on what have been updated in
+                                                            # P_test_x[emg_i, r] (2d-tensor)
+                    train_X = train_X.T                        # transpose the tensor => shape(2,nb_queries)
 
-                best_pred_x[emg_i, r, 0, i] = torch.argmax(gp_mean_pred).item() # update the tensor
+                    train_Y = P_test_y[emg_i, r, 0, :int(i+1)] # only focus on what have been updated in
+                                                            # P_test_y[emg_i, r] (1d-tensor)
+                    train_Y = train_Y[...,np.newaxis]          # add a new final dimension in the tensor 
+                                                            # (2d-tensor) train_y is a column matrix
 
-                tic_std = time.perf_counter()
-                gp_std_pred = torch.sqrt(gp.posterior(X_test_normed).variance.flatten()) # GP prediction for the variance
-                tac_std = time.perf_counter()
-                std_dur = tac_std - tic_std
+                    if i == 0:
+                        if resp != 0:
+                            train_Y = train_Y/train_Y.max() # =1 
+                    else:
+                        train_Y = standardize(train_Y) # (data-mean)/std
 
-                P_mean_pred[emg_i, r, 0, i, :] = gp_mean_pred   # update the tensor 
-                P_std_pred[emg_i, r, 0, i, :] = gp_std_pred     # update the tensor
+                    if AF == 'NEI' or AF == 'logNEI':   
+                        train_Yvar = torch.full_like(train_Y, 0.15) # create a tensor which has the same shape
+                                                                    # and type as train_y, but is filled with 
+                                                                    # a constant value of 0.15.
+                                                                    # train_Yvar allows to indicate the observed 
+                                                                    # measurement noise for each measure
+                        gp = SingleTaskGP(train_X, train_Y, train_Yvar = train_Yvar) # create the GP model
+                        
+                    else:
+                        gp = SingleTaskGP(train_X, train_Y) # create the GP model
+                    
+                    mll = ExactMarginalLogLikelihood(gp.likelihood, gp) # create the log likelihood function 
 
-                # sets to -inf the means of the nodes that have not already been measured
-                not_queried_loc = np.setdiff1d(np.arange(space_size), queried_loc)
-                gp_mean_pred[not_queried_loc] = -np.inf
+                    tic_hyp = time.perf_counter()
+                    fit_gpytorch_mll(mll) # optimize the hyperparameters of the GP
+                    tac_hyp = time.perf_counter()
+                    hyp_dur = tac_hyp - tic_hyp
 
-                best_pred_x_measured[emg_i, r, 0, i] = torch.argmax(gp_mean_pred).item() # update the tensor
+                    tic_mean = time.perf_counter() 
+                    gp_mean_pred = gp.posterior(X_test_normed).mean.flatten() # GP prediction for the mean
+                    tac_mean = time.perf_counter()
+                    mean_dur = tac_mean - tic_mean
 
-                tac_it = time.perf_counter()
-                iter_dur = tac_it - tic_it
+                    best_pred_x[emg_i, r, 0, i] = torch.argmax(gp_mean_pred).item() # update the tensor
 
-                iter_durations[emg_i, r, 0, i] = iter_dur
-                hyp_opti_durations[emg_i, r, 0, i] = hyp_dur
-                mean_calc_durations[emg_i, r, 0, i] = mean_dur
-                std_calc_durations[emg_i, r, 0, i] = std_dur
+                    tic_std = time.perf_counter()
+                    gp_std_pred = torch.sqrt(gp.posterior(X_test_normed).variance.flatten()) # GP prediction for the variance
+                    tac_std = time.perf_counter()
+                    std_dur = tac_std - tic_std
+
+                    P_mean_pred[emg_i, r, 0, i, :] = gp_mean_pred   # update the tensor 
+                    P_std_pred[emg_i, r, 0, i, :] = gp_std_pred     # update the tensor
+
+                    # sets to -inf the means of the nodes that have not already been measured
+                    not_queried_loc = np.setdiff1d(np.arange(space_size), queried_loc)
+                    gp_mean_pred[not_queried_loc] = -np.inf
+
+                    best_pred_x_measured[emg_i, r, 0, i] = torch.argmax(gp_mean_pred).item() # update the tensor
+
+                    tac_it = time.perf_counter()
+                    iter_dur = tac_it - tic_it
+
+                    iter_durations[emg_i, r, 0, i] = iter_dur
+                    hyp_opti_durations[emg_i, r, 0, i] = hyp_dur
+                    mean_calc_durations[emg_i, r, 0, i] = mean_dur
+                    std_calc_durations[emg_i, r, 0, i] = std_dur
+            # Update the progress bar with the current progress
+            pbar.n = emg_i*NB_REP + r
+            pbar.refresh()  # Refresh the progress bar
 
 
     tac = time.time()
