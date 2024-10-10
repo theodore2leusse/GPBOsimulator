@@ -115,8 +115,6 @@ if __name__ == "__main__":
         # loop over the different emgs 
         for emg_i in range(nb_emg):
             
-            print('emg', emg_i)
-            
             # loop over the different repetitions 
             for r in range(NB_REP):     
                 
@@ -230,9 +228,10 @@ if __name__ == "__main__":
                     hyp_opti_durations[emg_i, r, 0, i] = hyp_dur
                     mean_calc_durations[emg_i, r, 0, i] = mean_dur
                     std_calc_durations[emg_i, r, 0, i] = std_dur
-            # Update the progress bar with the current progress
-            pbar.n = emg_i*NB_REP + r
-            pbar.refresh()  # Refresh the progress bar
+                
+                # Update the progress bar with the current progress
+                pbar.n = emg_i*NB_REP + r + 1
+                pbar.refresh()  # Refresh the progress bar
 
 
     tac = time.time()
