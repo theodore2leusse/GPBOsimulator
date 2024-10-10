@@ -148,16 +148,32 @@ if __name__ == "__main__":
                         elif AF == 'UCB':                  
                             AF_ = UpperConfidenceBound(gp, beta = KAPPA, maximize = True)
                                         
-                        ei_val = AF_(X_test_normed[:, None, :]) # the arg has to be in the shape 
-                                                                # (space_size,1,space_dim)
-                                                                # ei_val is a tensor of size space_size
-                        af_val = ei_val.detach().numpy()        # af_val is an array of size space_size  
+                        # Apply the acquisition function (AF_) to the normalized test points
+                        # X_test_normed has a shape of (space_size, space_dim), but we need to reshape it 
+                        # to (space_size, 1, space_dim) for compatibility with the acquisition function.
+                        # The acquisition function evaluates the test points, and the output `ei_val`
+                        # is a tensor of size (space_size) that contains the acquisition values for each point.
+                        ei_val = AF_(X_test_normed[:, None, :]) 
 
-                        # choice of the next location we will try our black box function
+                        # Detach the acquisition values tensor from the computation graph and convert it
+                        # to a NumPy array for further processing. The result `af_val` will be an array of size (space_size),
+                        # holding the same acquisition values as `ei_val` but in a NumPy format.
+                        af_val = ei_val.detach().numpy()
+
+                        # Find the index of the maximum value in the acquisition function array `af_val`.
+                        # `np.where(af_val==af_val.max())[0]` returns the index where the acquisition value is maximal.
+                        # `next_x_idx` will hold the index of the next point to be selected based on the acquisition function.
+                        next_x_idx = np.where(af_val == af_val.max())[0]
+
+                        # Select the next test point based on the maximum acquisition value.
+                        # If there are multiple indices with the same maximum value, `next_x_idx.size > 1` will be true.
+                        # In this case, randomly select one of those indices using `np.random.choice`.
+                        # This helps avoid any bias or selection issues if there are multiple maxima.
                         if next_x_idx.size > 1:    
-                            next_x_idx = np.random.choice(np.where(af_val==af_val.max())[0])
+                            next_x_idx = np.random.choice(np.where(af_val == af_val.max())[0])
                         else: 
-                            next_x_idx = np.where(af_val==af_val.max())[0][0]
+                            # If there is only one maximum index, directly assign it as the next test point index.
+                            next_x_idx = next_x_idx[0]
                     
                     queried_loc.append(next_x_idx) # update the list with the next_x_idx we have just chosen
                     next_x = X_test_normed[next_x_idx] # entry coordonates for the next query
@@ -224,6 +240,7 @@ if __name__ == "__main__":
                     tac_it = time.perf_counter()
                     iter_dur = tac_it - tic_it
 
+                    # Fill these metric arrays that we will save in a npz file 
                     iter_durations[emg_i, r, 0, i] = iter_dur
                     hyp_opti_durations[emg_i, r, 0, i] = hyp_dur
                     mean_calc_durations[emg_i, r, 0, i] = mean_dur
