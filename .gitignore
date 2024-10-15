@@ -1,5 +1,7 @@
+draft.ipynb
+simu_GPBO.py
+
 # Ignore __pycache__ files
 __pycache__/
 
-# Ignore draft.ipynb
-draft.ipynb
+
