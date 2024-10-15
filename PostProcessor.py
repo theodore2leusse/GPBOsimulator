@@ -198,7 +198,7 @@ class PostProcessor():
             emg_i_id += 1
         return(np.mean(perf_exploit, axis = (0,1)))
     
-    def duration_metrics(self, emgs_idx: list[int] = None, REP_idx: list[int] = None) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def duration_metrics(self, emgs_idx: list[int] = None, REP_idx: int = None) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
         Calculate the duration metrics. This metric consists of averaging the various calculation 
         times over emgs and repetitions. 
@@ -206,9 +206,9 @@ class PostProcessor():
         Args:
             emgs_idx (list[int], optional): list of the emgs you want to consider to calculate the 
                                             metric. Defaults to None what correspond to all the emgs.
-            REP_idx (list[int], optional): list of the repitutions you want to consider to calculate 
-                                           the metric. Defaults to None what correspond to all the 
-                                           repetitions.
+            REP_idx (int, optional): the repetition you want to consider to calculate 
+                                    the metric. Defaults to None what correspond to all the 
+                                    repetitions.
 
         Returns:
             tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: 
@@ -221,11 +221,15 @@ class PostProcessor():
         if emgs_idx is None:
             emgs_idx = list(range(self.nb_emg))
         if REP_idx is None:
-            REP_idx = list(range(self.NB_REP))
-        perf_iter = np.mean(self.iter_durations[emgs_idx, REP_idx, :], axis = (0,1))      
-        perf_hyp = np.mean(self.hyp_opti_durations[emgs_idx, REP_idx, :], axis = (0,1))
-        perf_mean = np.mean(self.mean_calc_durations[emgs_idx, REP_idx, :], axis = (0,1))
-        perf_std = np.mean(self.std_calc_durations[emgs_idx, REP_idx, :], axis = (0,1))
+            perf_iter = np.mean(self.iter_durations[emgs_idx, :, :, :], axis = (0,1,2))      
+            perf_hyp = np.mean(self.hyp_opti_durations[emgs_idx, :, :, :], axis = (0,1,2))
+            perf_mean = np.mean(self.mean_calc_durations[emgs_idx, :, :, :], axis = (0,1,2))
+            perf_std = np.mean(self.std_calc_durations[emgs_idx, :, :, :], axis = (0,1,2))
+        else:
+            perf_iter = np.mean(self.iter_durations[emgs_idx, REP_idx, :, :], axis = (0,1,2))      
+            perf_hyp = np.mean(self.hyp_opti_durations[emgs_idx, REP_idx, :, :], axis = (0,1,2))
+            perf_mean = np.mean(self.mean_calc_durations[emgs_idx, REP_idx, :, :], axis = (0,1,2))
+            perf_std = np.mean(self.std_calc_durations[emgs_idx, REP_idx, :, :], axis = (0,1,2))
         return(perf_iter, perf_hyp, perf_mean, perf_std)
 
 
