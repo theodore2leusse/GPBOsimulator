@@ -48,4 +48,6 @@ if __name__ == "__main__":
                        ds = ds,
                        AF = 'NEI')
     
+    sim_gpbo.select_emgs([0])
+    
     sim_gpbo.run_simulations()
