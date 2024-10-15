@@ -1,2 +1,10 @@
-# Ignore __pycache__ files
+# Ignore __pycache__ directories
 __pycache__/
+
+# Ignore Jupyter notebook checkpoints
+*.ipynb_checkpoints/
+
+# Ignore draft and simu_GPBO files
+draft.ipynb
+simu_GPBO.py
+
