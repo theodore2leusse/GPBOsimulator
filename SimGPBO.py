@@ -43,15 +43,15 @@ class SimGPBO():
         KAPPA (float | torch.Tensor): The KAPPA parameter for the UCB AF. Defaults to None.
         nb_emg (int): The number of EMG signals in the dataset.
         space_size (int): The size of the electrodes in the chip.
-        space_dim (int): The number of dimensions in the entry space.
+        space_dim (int): The number of dimensions in the input space.
         num_fantasies (int): The number of fantasies for the acquisition function. Defaults to 20.
 
     Methods:
         select_emgs(emg_idx: list[int]) -> None:
             Selects specific electromyography (EMG) signals for simulation.
 
-        normalized_entry_space() -> torch.Tensor:
-            Normalizes the entry space coordinates to a [0, 1] range.
+        normalized_input_space() -> torch.Tensor:
+            Normalizes the input space coordinates to a [0, 1] range.
 
         get_rand_idx() -> np.ndarray:
             Generates random indices for each EMG channel and repetition, selecting a subset of the search space.
@@ -76,6 +76,9 @@ class SimGPBO():
 
         erase_storage() -> None:
             Erases stored attributes to free up memory after saving results.
+
+        gpytorch_gpbo(emg_i:int, r: int, i: int, response_type: str = 'valid') -> tuple[list, torch.Tensor, torch.Tensor, float, float, float]:
+            Performs a single iteration of Gaussian Process Bayesian Optimization (GPBO).
 
         run_simulations(manual_seed: bool = True, clock_storage: bool = True, mean_and_std_storage: bool = False, intermediate_save: bool = False, response_type: str = 'valid') -> None:
             Execute multiple simulations for Gaussian Process Bayesian Optimization (GPBO) over a defined number of EMG signals and repetitions.
@@ -114,7 +117,7 @@ class SimGPBO():
 
         self.nb_emg = len(self.ds.set['emgs'])          # nb of emgs
         self.space_size = self.ds.set['ch2xy'].shape[0] # nb of electrodes in our chip
-        self.space_dim = self.ds.set['ch2xy'].shape[1]  # nb of dimensions in our entry space
+        self.space_dim = self.ds.set['ch2xy'].shape[1]  # nb of dimensions in our input space
 
         if NB_IT is None: # if NB_IT not specified 
             self.NB_IT = self.space_size   
@@ -152,9 +155,9 @@ class SimGPBO():
         self.ds.set['sorted_respMean'] = self.ds.set['sorted_respMean'][:, emg_idx]
         self.nb_emg = len(self.ds.set['emgs'])
 
-    def normalized_entry_space(self) -> torch.Tensor:
+    def normalized_input_space(self) -> torch.Tensor:
         """
-        Normalizes the entry space coordinates to a [0, 1] range.
+        Normalizes the input space coordinates to a [0, 1] range.
 
         This method normalizes the coordinates of the entries stored in `self.ds.set['ch2xy']` by subtracting the 
         minimum value and dividing by the range (max - min) for each dimension. The result is a tensor where all 
@@ -166,7 +169,7 @@ class SimGPBO():
         
         Tensors:
             - `X_test_normed`: A PyTorch tensor containing the normalized coordinates of the test points. The normalization 
-                            ensures that all coordinates are in the range [0, 1].
+                            ensures that all coordinates are in the range [0, 1]. shape is (space_size, space_dim)
         """
         # Normalize the coordinates to the range [0, 1]
         X_test_normed = torch.from_numpy((self.ds.set['ch2xy'] - np.min(self.ds.set['ch2xy'], axis=0)) /
@@ -189,7 +192,7 @@ class SimGPBO():
                         channel and repetition. These indices correspond to random selections from the search space.
         
         Tensors:
-            - `rand_idx`: A 3D numpy array with dimensions `(nb_emg, NB_REP, NB_RND)`. Each entry corresponds to a 
+            - `rand_idx`: A 3D numpy array with dimensions `(nb_emg, NB_REP, NB_RND)`. Each input corresponds to a 
                         randomly selected index from the space of size `space_size`.
 
         """
@@ -521,7 +524,7 @@ class SimGPBO():
             query_idx = self.select_next_query(AF = self.AF, gp = self.last_used_gp, train_X = self.last_used_train_X,
                                                 train_Y = self.last_used_train_Y, X_test_normed = self.X_test_normed)                  
         
-        next_x = self.X_test_normed[query_idx]              # entry coordonates for the next query
+        next_x = self.X_test_normed[query_idx]              # input coordonates for the next query
 
         resp = self.get_response(emg_i = emg_i, next_x_idx = query_idx, response_type = response_type)
 
@@ -530,12 +533,12 @@ class SimGPBO():
         ## ----- Update tensors ----- ##
 
         self.P_test_x[emg_i, r, :, i] = next_x             # update the tensor 
-        self.P_test_x_idx[emg_i, r, 0, i] = query_idx     # update the tensor
+        self.P_test_x_idx[emg_i, r, 0, i] = query_idx      # update the tensor
         self.P_test_y[emg_i, r, 0, i] = resp.astype(float) # update the tensor
 
         train_X = self.P_test_x[emg_i, r, :, :int(i+1)]    # only focus on what have been updated in
-                                                    # P_test_x[emg_i, r] (2d-tensor)
-        train_X = train_X.T                           # transpose the tensor => shape(2,nb_queries)
+                                                           # P_test_x[emg_i, r] (2d-tensor)
+        train_X = train_X.T                                # transpose the tensor => shape(nb_queries, dim_input_space)
 
         train_Y = self.P_test_y[emg_i, r, 0, :int(i+1)]    # only focus on what have been updated in
                                                     # P_test_y[emg_i, r] (1d-tensor)
@@ -639,8 +642,8 @@ class SimGPBO():
                 np.random.seed(1) # allow to repeat the same 'random' simu
                 torch.manual_seed(1) # allow to repeat the same 'random' simu 
 
-            # we normalize the entry space
-            self.X_test_normed = self.normalized_entry_space()  
+            # we normalize the input space
+            self.X_test_normed = self.normalized_input_space()  
 
             # Initialize random indices and storage tensors
             self.rand_idx = self.get_rand_idx()
