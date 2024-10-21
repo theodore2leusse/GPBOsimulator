@@ -35,8 +35,9 @@ class FixedGP:
         kernel_vect_mat (np.ndarray): The covariance matrix between input space and training inputs.
     """
 
-    def __init__(self, input_space, train_X, train_Y, kernel_type: str = 'rbf', noise_std=0.1, output_std=1, lengthscale=0.05) -> None:
-        """Initializes the FixedLengthscalesGP instance.
+    def __init__(self, input_space: np.ndarray, train_X: np.ndarray, train_Y: np.ndarray, kernel_type: str = 'rbf', noise_std=0.1, output_std=1, lengthscale=0.05) -> None:
+        """
+        Initializes the FixedLengthscalesGP instance.
 
         Args:
             input_space (np.ndarray): The input space for the GP. shape(space_size, space_dim)
@@ -60,8 +61,9 @@ class FixedGP:
         self.space_dim = input_space.shape[1]  # Dimensionality of the input space
         self.nb_queries = train_X.shape[0]  # Number of training samples
 
-    def compute_kernel(self) -> None:
-        """Computes the covariance matrix and the kernel vector matrix based on the selected kernel type.
+    def set_kernel(self) -> None:
+        """
+        set the kernel
 
         Raises:
             ValueError: If the kernel_type is not recognized.
@@ -74,18 +76,24 @@ class FixedGP:
             self.kernel = GPy.kern.Matern52(input_dim=self.space_dim, variance=self.output_std**2, lengthscale=self.lengthscale)
         else:
             raise ValueError("The attribute kernel_type is not well defined")
-        
+
+    def compute_kernel(self) -> None:
+        """
+        Computes the covariance matrix and the kernel vector matrix based on the selected kernel type.
+        """
         self.kernel_mat = self.kernel.K(self.train_X)  # Covariance matrix of the training inputs
-        self.kernel_vect_mat = self.kernel.K(self.input_space, self.train_X)  # Covariance matrix between input space and training inputs
+        self.kernel_vect_mat = self.kernel.K(self.input_space, self.train_X)  # Covariance matrix between input space and training inputs. shape = (space_size, train_size)
 
     def predict(self) -> tuple[np.ndarray, np.ndarray]:
-        """Predicts the mean and standard deviation of the GP at the given input space.
+        """
+        Predicts the mean and standard deviation of the GP at the given input space.
 
         Returns:
             tuple[np.ndarray, np.ndarray]: A tuple containing:
                 - mean (np.ndarray): The predicted mean values at the input space.
                 - std (np.ndarray): The predicted standard deviations at the input space.
         """
+        self.set_kernel()
         self.compute_kernel()  # Compute kernel matrices
         
         # Add noise to the kernel matrix
@@ -104,9 +112,10 @@ class FixedGP:
         # Compute the predicted mean and standard deviation for each point in the input space
         for i in range(self.space_size):
             kernel_vect = self.kernel_vect_mat[i, :]  # Covariance vector for the current input space point
-            mean[i] = np.dot(kernel_vect, np.dot(K_inv, self.train_Y))  # Compute the mean
-            std[i] = np.sqrt(self.output_std**2 - np.dot(kernel_vect, np.dot(K_inv, kernel_vect)))  # Compute the standard deviation
-        
+            mean[i] = kernel_vect @ K_inv @ self.train_Y  # Compute the mean
+            std[i] = np.sqrt(self.output_std**2 
+                             - kernel_vect @ K_inv @ kernel_vect)  # Compute the standard deviation
+
         return mean, std
 
 
