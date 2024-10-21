@@ -20,9 +20,12 @@ from utils import *
 import warnings
 import time
 from tqdm import tqdm
+from scipy.stats import norm
 
 # import file 
 from DataSet import DataSet
+from GPBOcustom.FixedGP import FixedGP
+from GPBOcustom.FixedOnlineGP import FixedOnlineGP
 
 
 class SimGPBO():
@@ -59,23 +62,26 @@ class SimGPBO():
         initialize_storage_basic_tensors() -> None:
             Initializes the basic tensors used to store key data during the optimization process.
 
-        initialize_storage_clock_tensors() -> None:
+        initialize_storage_clock_tensors(self, gp_origin: str = 'gpytorch') -> None:
             Initializes the tensors used to store timing information for various stages of the optimization process.
 
         initialize_storage_mean_and_std_tensors() -> None:
             Initializes the tensors used to store the predicted mean and standard deviation for each iteration.
 
-        select_next_query(AF: str, gp, train_X: torch.Tensor, train_Y: torch.Tensor, X_test_normed: torch.Tensor) -> int:
+        botorch_AF(AF: str, gp, train_X: torch.Tensor, train_Y: torch.Tensor, X_test_normed: torch.Tensor) -> int:
             Selects the next query point based on the acquisition function (AF) applied to the normalized test points.
 
         get_response(emg_i: int, next_x_idx: int, response_type: str = 'valid') -> float:
             Retrieves the response for a given query based on the specified response type.
 
-        npz_save(clock_storage: bool, mean_and_std_storage: bool, final: bool = False, emg_i: int = None, r: int = None) -> None:
+        npz_save(self, clock_storage: bool, mean_and_std_storage: bool, gp_origin: str = 'gpytorch', final: bool = False, emg_i: int = None, r: int = None) -> None:
             Saves the GPBO results to a .npz file, with optional storage of mean/std predictions and clock durations.
 
         erase_storage() -> None:
             Erases stored attributes to free up memory after saving results.
+
+        set_custom_gp_hyperparameters(self, kernel_type: str = 'rbf', noise_std: float = 0.1, output_std: float = 1, lengthscale: float = 0.05) -> None:
+            Sets the hyperparameters for the Gaussian Process (GP) model. Is only usefull if custom gps are used !
 
         gpytorch_gpbo(emg_i:int, r: int, i: int, response_type: str = 'valid') -> tuple[list, torch.Tensor, torch.Tensor, float, float, float]:
             Performs a single iteration of Gaussian Process Bayesian Optimization (GPBO).
@@ -261,11 +267,16 @@ class SimGPBO():
             dtype=int
         )
 
-    def initialize_storage_clock_tensors(self) -> None:
+    def initialize_storage_clock_tensors(self, gp_origin: str = 'gpytorch') -> None:
+
         """Initializes the tensors used to store timing information for various stages of the optimization process.
+
+        Args:
+            gp_origin (str, optional): Specifies the gp we will use in our simulation. Can be 'gpytroch', 'custom_FixedOnlineGP', 'custom_FixedOnlineGP_without_schur' or 'custom_FixedGP'. Defaults to 'gpytorch'.
 
         This method sets up four tensors to track the duration of key operations during each iteration of the optimization:
         - `iter_durations`: Tracks the total duration of each iteration.
+        - `gp_durations`: Tracks the total duration of each gp calculation.
         - `hyp_opti_durations`: Tracks the duration of hyperparameter optimization.
         - `mean_calc_durations`: Tracks the time spent calculating the predicted mean.
         - `std_calc_durations`: Tracks the time spent calculating the predicted standard deviation.
@@ -281,24 +292,32 @@ class SimGPBO():
             (self.nb_emg, self.NB_REP, 1, self.NB_IT),
             dtype=torch.float64
         )
-        
-        # Initialize tensor to store hyperparameter optimization durations
-        self.hyp_opti_durations = torch.zeros(
+
+        # Initialize tensor to store gp calculation durations
+        self.gp_durations = torch.zeros(
             (self.nb_emg, self.NB_REP, 1, self.NB_IT),
             dtype=torch.float64
         )
         
-        # Initialize tensor to store mean calculation durations
-        self.mean_calc_durations = torch.zeros(
-            (self.nb_emg, self.NB_REP, 1, self.NB_IT),
-            dtype=torch.float64
-        )
-        
-        # Initialize tensor to store standard deviation calculation durations
-        self.std_calc_durations = torch.zeros(
-            (self.nb_emg, self.NB_REP, 1, self.NB_IT),
-            dtype=torch.float64
-        )
+        if gp_origin == 'gpytorch':
+
+            # Initialize tensor to store hyperparameter optimization durations
+            self.hyp_opti_durations = torch.zeros(
+                (self.nb_emg, self.NB_REP, 1, self.NB_IT),
+                dtype=torch.float64
+            )
+            
+            # Initialize tensor to store mean calculation durations
+            self.mean_calc_durations = torch.zeros(
+                (self.nb_emg, self.NB_REP, 1, self.NB_IT),
+                dtype=torch.float64
+            )
+            
+            # Initialize tensor to store standard deviation calculation durations
+            self.std_calc_durations = torch.zeros(
+                (self.nb_emg, self.NB_REP, 1, self.NB_IT),
+                dtype=torch.float64
+            )
    
     def initialize_storage_mean_and_std_tensors(self) -> None:
         """Initializes the tensors used to store the predicted mean and standard deviation for each iteration.
@@ -328,8 +347,8 @@ class SimGPBO():
             dtype=torch.float64
         )
 
-    def select_next_query(self, AF: str, gp, train_X: torch.Tensor, train_Y: torch.Tensor, X_test_normed: torch.Tensor) -> int:
-        """Selects the next query point based on the acquisition function (AF) applied to the normalized test points.
+    def botorch_AF(self, AF: str, gp, train_X: torch.Tensor, train_Y: torch.Tensor, X_test_normed: torch.Tensor) -> int:
+        """Selects the next query point based on the acquisition function (AF) applied to the normalized test points, using botorch librairie.
 
         Args:
             AF (str): The acquisition function to use. Can be 'EI', 'NEI', 'logEI', 'logNEI', or 'UCB'.
@@ -382,6 +401,41 @@ class SimGPBO():
         # Return the index of the next query point.
         return next_x_idx
     
+    def custom_AF(self, AF: str, mean: np.ndarray, std: np.ndarray, emg_i: int, r: int, i: int) -> int:
+        """Selects the next query point based on the acquisition function (AF) applied to the normalized test points, using botorch librairie.
+
+        Args:
+            AF (str): The acquisition function to use. Can be 'EI' or 'UCB'.
+            mean (np.ndarray): mean from the last gp computation above the entry space. shape = (space_size,)
+            std (np.ndarray): std from the last gp computation above the entry space. shape = (space_size,)
+            emg_i (int): The index of the EMG signal being processed.
+            r (int): The current round of optimization.
+            i (int): The current iteration within the round.
+
+        Returns:
+            int: The index of the next test point selected based on the acquisition function.
+        """
+        # best_f = np.max(self.last_used_train_Y) # In theory, it should be best observed value :
+        best_f = self.best_pred_x_measured[emg_i, r, 0, i-1] # best observed value
+
+        if AF == 'EI':  # Expected Improvement
+            # Compute improvement for each point
+            z = (mean - best_f) / (std + 1e-9)  # Add small value to avoid division by zero
+            ei = (mean - best_f) * norm.cdf(z) + std * norm.pdf(z) # cdf is Cumulative Distribution Function
+                                                                   # pdf is Probability Density Function
+            next_query_idx = np.argmax(ei)  # Index of the point with the highest EI
+
+
+        elif AF == 'UCB':  # Upper Confidence Bound
+            # Compute UCB for each point
+            ucb = mean + self.KAPPA * std
+            next_query_idx = np.argmax(ucb)  # Index of the point with the highest UCB
+
+        else:
+            raise ValueError(f"Unknown acquisition function: {AF}")
+
+        return next_query_idx
+    
     def get_response(self, emg_i: int, next_x_idx: int, response_type: str = 'valid') -> float:
         """
         Retrieves the response for a given query based on the specified response type.
@@ -408,12 +462,13 @@ class SimGPBO():
             raise ValueError("response_type is not well defined")
         return(resp)
     
-    def npz_save(self, clock_storage: bool, mean_and_std_storage: bool, final: bool = False, emg_i: int = None, r: int = None) -> None:
+    def npz_save(self, clock_storage: bool, mean_and_std_storage: bool, gp_origin: str = 'gpytorch', final: bool = False, emg_i: int = None, r: int = None) -> None:
         """Saves the GPBO results to a .npz file, with optional storage of mean/std predictions and clock durations.
 
         Args:
             clock_storage (bool): Whether to save iteration and calculation durations.
             mean_and_std_storage (bool): Whether to save mean and standard deviation predictions.
+            gp_origin (str, optional): Specifies the gp we will use in our simulation. Can be 'gpytroch', 'custom_FixedOnlineGP', 'custom_FixedOnlineGP_without_schur' or 'custom_FixedGP'. Defaults to 'gpytorch'. 
             final (bool, optional): If True, indicates final save. Defaults to False.
             emg_i (int, optional): The index of the current EMG if the simulation is not finished. Required when final is False.
             r (int, optional): The index of the current repetition if the simulation is not finished. Required when final is False.
@@ -439,10 +494,14 @@ class SimGPBO():
         if clock_storage:
             save_dict.update({
                 'iter_durations': self.iter_durations,
-                'hyp_opti_durations': self.hyp_opti_durations,
-                'mean_calc_durations': self.mean_calc_durations,
-                'std_calc_durations': self.std_calc_durations,
+                'gp_durations': self.gp_durations,
             })
+            if gp_origin == 'gpytorch':
+                save_dict.update({
+                    'hyp_opti_durations': self.hyp_opti_durations,
+                    'mean_calc_durations': self.mean_calc_durations,
+                    'std_calc_durations': self.std_calc_durations,
+                })
 
         # Add state of the simulation
         if final:
@@ -451,11 +510,11 @@ class SimGPBO():
             save_dict['state_of_the_simu'] = f'NOT FINISHED, last save for emg_i={emg_i} and rep={r}'
 
         # Save the results to the .npz file
-        np.savez('results/gpbo_{0}_{1}'.format(self.AF, self.ds.dataset_name, self.name), **save_dict, **self.ds.set)
+        np.savez('results/gpbo_{3}_{0}_{1}_{2}'.format(self.AF, self.ds.dataset_name, self.name, gp_origin), **save_dict, **self.ds.set)
 
         if final:
             print("final save of {0} in:   {1}".format(self.name,
-                    'results/gpbo_{0}_{1}_{2}'.format(self.AF, self.ds.dataset_name, self.name)))
+                    'results/gpbo_{3}_{0}_{1}_{2}'.format(self.AF, self.ds.dataset_name, self.name, gp_origin)))
             
     def erase_storage(self) -> None:
         """Erases stored attributes to free up memory after saving results.
@@ -480,19 +539,44 @@ class SimGPBO():
             del self.P_mean_pred
         if hasattr(self, 'P_std_pred'):
             del self.P_std_pred
-
-        # deletes if exist
         if hasattr(self, 'iter_durations'):
             del self.iter_durations
+        if hasattr(self, 'gp_durations'):
+            del self.gp_durations
         if hasattr(self, 'hyp_opti_durations'):
             del self.hyp_opti_durations
         if hasattr(self, 'mean_calc_durations'):
             del self.mean_calc_durations
         if hasattr(self, 'std_calc_durations'):
             del self.std_calc_durations
+        if hasattr(self, 'last_used_gp'):
+            del self.last_used_gp
+        if hasattr(self, 'last_used_train_X'):
+            del self.last_used_train_X
+        if hasattr(self, 'last_used_train_Y'):
+            del self.last_used_train_Y
+
+    def set_custom_gp_hyperparameters(self, kernel_type: str = 'rbf', noise_std: float = 0.1, output_std: float = 1, lengthscale: float = 0.05) -> None:
+        """
+        Sets the hyperparameters for the Gaussian Process (GP) model.
+        Is only usefull if custom gps are used !
+
+        Args:
+            kernel_type (str): The type of kernel to use for the GP. Defaults to 'rbf'.
+            noise_std (float): The standard deviation of the noise in the model. Defaults to 0.1.
+            output_std (float): The standard deviation of the output. Defaults to 1.
+            lengthscale (float): The lengthscale parameter of the kernel. Defaults to 0.05.
+
+        Returns:
+            None: This method only sets the hyperparameters of the GP model.
+        """
+        self.kernel_type = kernel_type
+        self.noise_std = noise_std
+        self.output_std = output_std
+        self.lengthscale = lengthscale
 
     def gpytorch_gpbo(self, emg_i:int, r: int, i: int, response_type: str = 'valid') -> tuple[list, torch.Tensor, torch.Tensor, float, float, float]:
-        """Performs a single iteration of Gaussian Process Bayesian Optimization (GPBO).
+        """Performs a single iteration of Gaussian Process Bayesian Optimization (GPBO) with the gpytorch and botorch librairies.
 
         This method selects the next query point using either a random or acquisition-based strategy,
         retrieves the corresponding response, updates the training data, and fits a Gaussian Process
@@ -509,9 +593,10 @@ class SimGPBO():
             tuple[list, torch.Tensor, torch.Tensor, float, float, float]:
                 - query_idx (list): The index of the selected query point.
                 - gp_mean_pred (torch.Tensor): The predicted mean values from the Gaussian Process,
-                with shape (space_size,).
+                  with shape (space_size,).
                 - gp_std_pred (torch.Tensor): The predicted standard deviation values from the Gaussian Process,
-                with shape (space_size,).
+                  with shape (space_size,).
+                - gp_dur (float): Duration of gp calculations in seconds.
                 - hyp_dur (float): Duration of hyperparameter optimization in seconds.
                 - mean_dur (float): Duration of mean prediction computation in seconds.
                 - std_dur (float): Duration of standard deviation prediction computation in seconds.
@@ -521,7 +606,7 @@ class SimGPBO():
         if i < self.NB_RND: # we chose the next node randomly with next_x_idx
             query_idx = self.rand_idx[emg_i, r, i]    
         else: # we have to use an acquisition function to select the next query 
-            query_idx = self.select_next_query(AF = self.AF, gp = self.last_used_gp, train_X = self.last_used_train_X,
+            query_idx = self.botorch_AF(AF = self.AF, gp = self.last_used_gp, train_X = self.last_used_train_X,
                                                 train_Y = self.last_used_train_Y, X_test_normed = self.X_test_normed)                  
         
         next_x = self.X_test_normed[query_idx]              # input coordonates for the next query
@@ -541,9 +626,9 @@ class SimGPBO():
         train_X = train_X.T                                # transpose the tensor => shape(nb_queries, dim_input_space)
 
         train_Y = self.P_test_y[emg_i, r, 0, :int(i+1)]    # only focus on what have been updated in
-                                                    # P_test_y[emg_i, r] (1d-tensor)
-        train_Y = train_Y[...,np.newaxis]             # add a new final dimension in the tensor 
-                                                    # (2d-tensor) train_y is a column matrix
+                                                           # P_test_y[emg_i, r] (1d-tensor)
+        train_Y = train_Y[...,np.newaxis]                  # add a new final dimension in the tensor 
+                                                           # (2d-tensor) train_y is a column matrix
         if i == 0:
             if resp != 0:
                 train_Y = train_Y/train_Y.max() # =1 
@@ -554,6 +639,7 @@ class SimGPBO():
 
         ## ----- get and fit the gp ----- ##
 
+        tic_gp = time.perf_counter()
         if self.AF == 'NEI' or self.AF == 'logNEI':   
             train_Yvar = torch.full_like(train_Y, 0.15) # create a tensor which has the same shape
                                                         # and type as train_y, but is filled with 
@@ -570,69 +656,136 @@ class SimGPBO():
         tic_hyp = time.perf_counter()
         fit_gpytorch_mll(mll) # optimize the hyperparameters of the GP
         tac_hyp = time.perf_counter()
-        hyp_dur = tac_hyp - tic_hyp
 
 
 
         ## ----- get posterior means and std ----- ##
 
-        tic_mean = time.perf_counter() 
         gp_mean_pred = gp.posterior(self.X_test_normed).mean.flatten() # GP prediction for the mean
         tac_mean = time.perf_counter()
-        mean_dur = tac_mean - tic_mean
 
-        tic_std = time.perf_counter()
         gp_std_pred = torch.sqrt(gp.posterior(self.X_test_normed).variance.flatten()) # GP prediction for the variance
         tac_std = time.perf_counter()
-        std_dur = tac_std - tic_std
 
-
+        gp_dur = tac_std - tic_gp
+        hyp_dur = tac_hyp - tic_hyp
+        mean_dur = tac_mean - tac_hyp
+        std_dur = tac_std - tac_mean
 
         # in order to compute the acquisition function for the next iteration
         self.last_used_gp = gp
         self.last_used_train_X = train_X
         self.last_used_train_Y = train_Y
 
-        return(query_idx, gp_mean_pred, gp_std_pred, hyp_dur, mean_dur, std_dur)
+        return(query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, mean_dur, std_dur)
     
-    def custum_gpbo(self): #TODO
-        pass
+    def custom_gpbo(self, gp_origin: str, emg_i:int, r: int, i: int, response_type: str = 'valid') -> tuple[list, torch.Tensor, torch.Tensor, float, float, float]:
+        """Performs a single iteration of Gaussian Process Bayesian Optimization (GPBO) with custom GP and AF.
+
+        This method selects the next query point using either a random or acquisition-based strategy,
+        retrieves the corresponding response, updates the training data, and fits a Gaussian Process
+        model to the updated data. It also computes the posterior mean and standard deviation for 
+        the specified test points.
+
+        Args:
+            gp_origin (str, optional): Specifies the gp we will use in our simulation. Can be 'custom_FixedOnlineGP', 'custom_FixedOnlineGP_without_schur' or 'custom_FixedGP'.
+            emg_i (int): The index of the EMG signal being processed.
+            r (int): The current round of optimization.
+            i (int): The current iteration within the round.
+            response_type (str, optional): The type of response to retrieve. Defaults to 'valid'.
+
+        Returns:
+            tuple[list, torch.Tensor, torch.Tensor, float, float, float]:
+                - query_idx (list): The index of the selected query point.
+                - gp_mean_pred (torch.Tensor): The predicted mean values from the Gaussian Process,
+                  with shape (space_size,).
+                - gp_std_pred (torch.Tensor): The predicted standard deviation values from the Gaussian Process,
+                  with shape (space_size,).
+                - gp_dur (float): Duration of gp calculations in seconds.
+                - hyp_dur (float): Duration of hyperparameter optimization in seconds.
+                - mean_dur (float): Duration of mean prediction computation in seconds.
+                - std_dur (float): Duration of standard deviation prediction computation in seconds.
+        """
+        ## ----- Select the next query and get a response ----- ##
+
+        if i < self.NB_RND: # we chose the next node randomly with next_x_idx
+            query_idx = self.rand_idx[emg_i, r, i]    
+        else: # we have to use an acquisition function to select the next query 
+            query_idx = self.custom_AF(AF = self.AF, mean = self.last_used_gp.mean, std = self.last_used_gp.std, emg_i = emg_i, r = r, i = i)                  
+        
+        next_x = self.X_test_normed[query_idx]              # input coordonates for the next query
+
+        resp = self.get_response(emg_i = emg_i, next_x_idx = query_idx, response_type = response_type)
+
+
+
+        ## ----- Update tensors ----- ##
+
+        self.P_test_x[emg_i, r, :, i] = next_x             # update the tensor 
+        self.P_test_x_idx[emg_i, r, 0, i] = query_idx      # update the tensor
+        self.P_test_y[emg_i, r, 0, i] = resp.astype(float) # update the tensor
+
+
+
+        ## ----- get the gp and posterior means and std ----- ##
+
+        tic_gp = time.perf_counter()
+
+        if gp_origin == 'custom_FixedOnlineGP':
+            self.fogp.update(query_x = next_x, query_y = resp)
+            self.fogp.predict()
+            tac_gp = time.perf_counter()
+            gp_mean_pred = torch.from_numpy(self.fogp.mean)
+            gp_std_pred = torch.from_numpy(self.fogp.std)
+
+        elif gp_origin == 'custom_FixedOnlineGP_without_schur':
+            self.fogp.update_no_schur(query_x = next_x, query_y = resp)
+            self.fogp.predict()
+            tac_gp = time.perf_counter()
+            gp_mean_pred = torch.from_numpy(gp_mean_pred)
+            gp_std_pred = torch.from_numpy(gp_std_pred)
+
+        elif gp_origin == 'custom_FixedGP':
+            train_X = self.P_test_x[emg_i, r, :, :int(i+1)] # only focus on what have been updated in
+                                                            # P_test_x[emg_i, r] (2d-tensor)
+            train_X = train_X.T                             # transpose the tensor => shape(nb_queries, dim_input_space)
+
+            train_Y = self.P_test_y[emg_i, r, 0, :int(i+1)] # only focus on what have been updated in
+                                                            # P_test_y[emg_i, r] (1d-tensor)
+            train_Y = train_Y[...,np.newaxis]               # add a new final dimension in the tensor 
+                                                            # (2d-tensor) train_y is a column matrix
+            if i == 0:
+                if resp != 0:
+                    train_Y = train_Y/train_Y.max() # =1 
+            else:
+                train_Y = standardize(train_Y) # (data-mean)/std
+            fgp = FixedGP(input_space = self.X_test_normed, train_X = train_X, train_Y = train_Y,
+                          kernel_type = self.kernel_type, noise_std = self.noise_std, output_std = self.output_std,
+                          lengthscale = self.lengthscale)
+            gp_mean_pred, gp_std_pred = fgp.predict()
+            tac_gp = time.perf_counter()
+            gp_mean_pred = torch.from_numpy(gp_mean_pred)
+            gp_std_pred = torch.from_numpy(gp_std_pred)
+        else:
+            raise ValueError("gp_origin is not well defined")
+
+        gp_dur = tac_gp - tic_gp
+
+        return(query_idx, gp_mean_pred, gp_std_pred, gp_dur)
 
     def run_simulations(self, manual_seed: bool = True, clock_storage: bool = True,
                         mean_and_std_storage: bool = False, intermediate_save: bool = False, 
-                        response_type: str = 'valid') -> None:
-        """
-        Execute multiple simulations for Gaussian Process Bayesian Optimization (GPBO) over a defined number of
-        electro-myographic (EMG) signals and repetitions.
+                        response_type: str = 'valid', gp_origin: str = 'gpytorch') -> None:
+        """Execute multiple simulations for Gaussian Process Bayesian Optimization (GPBO) over a defined number of
+        electro-myographic (EMG) signals and repetitions.  
 
-        Parameters:
-        -----------   
-        manual_seed : bool
-            If True, sets the random seed for reproducibility of results. Default is True.
-            
-        clock_storage : bool
-            If True, initializes storage for timing metrics during the simulation. Default is True.
-            
-        mean_and_std_storage : bool
-            If True, initializes storage for mean and standard deviation tensors from the GP model. Default is False.
-
-        intermediate_save : bool
-            If True, save the data collected after each eng loop. Default is False.
-
-        response_type : str
-            Can be 'valid', 'realistic' or 'mean'. Find out how to select answers for a particular query. Default is 'valid'. 
-                
-        Returns:
-        --------
-        None
-            This method does not return a value, but it saves the results in the specified file format.
-            
-        Notes:
-        ------
-        - The method uses a progress bar to display the overall progress of the simulations.
-        - Various tensors are initialized to store queried locations, predictions, and timing metrics.
-        - It allows for both random and acquisition-based querying strategies, determined by the number of iterations.
-        - The Gaussian Process model is fit and used to obtain posterior mean and standard deviation predictions.
+        Args:
+            manual_seed (bool, optional): If True, sets the random seed for reproducibility of results. Defaults to True.
+            clock_storage (bool, optional): If True, initializes storage for timing metrics during the simulation. Defaults to True.
+            mean_and_std_storage (bool, optional): If True, initializes storage for mean and standard deviation tensors from the GP model. Defaults to False.
+            intermediate_save (bool, optional): If True, save the data collected after each eng loop. Defaults to False.
+            response_type (str, optional): Can be 'valid', 'realistic' or 'mean'. Find out how to select answers for a particular query. Defaults to 'valid'.
+            gp_origin (str, optional): Specifies the gp we will use in our simulation. Can be 'gpytroch', 'custom_FixedOnlineGP', 'custom_FixedOnlineGP_without_schur' or 'custom_FixedGP'. Defaults to 'gpytorch'.
         """
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", module='linear_operator.utils.cholesky')
@@ -649,9 +802,11 @@ class SimGPBO():
             self.rand_idx = self.get_rand_idx()
             self.initialize_storage_basic_tensors()
             if clock_storage:
-                self.initialize_storage_clock_tensors()
+                self.initialize_storage_clock_tensors(gp_origin = 'gpytorch')
             if mean_and_std_storage:
                 self.initialize_storage_mean_and_std_tensors()
+
+            custom_OnlineGP_bool = (gp_origin == 'custom_FixedOnlineGP') or (gp_origin == 'custom_FixedOnlineGP_without_schur')
 
             tic = time.time()
 
@@ -665,6 +820,12 @@ class SimGPBO():
                     for r in range(self.NB_REP):     
                         
                         queried_loc = [] # initialization of the list of the next_x_idx
+                        
+                        if custom_OnlineGP_bool:
+                            self.fogp = FixedOnlineGP(input_space= self.X_test_normed, kernel_type= 'rbf', 
+                                                 noise_std= self.noise_std, output_std= self.output_std, 
+                                                 lengthscale= self.lengthscale, NB_IT= self.NB_IT)
+                            self.fogp.set_kernel()
 
                         # loop over the number of node in our grid
                         for i in range(self.NB_IT):
@@ -675,9 +836,15 @@ class SimGPBO():
 
                             ## ----- GPBO ----- ##
 
-                            last_query_idx, gp_mean_pred, gp_std_pred, hyp_dur, mean_dur, std_dur = self.gpytorch_gpbo(
-                                emg_i = emg_i, r = r, i = i, response_type = response_type
-                            )
+                            if gp_origin == 'gpytorch':
+                                last_query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, mean_dur, std_dur = self.gpytorch_gpbo(
+                                    emg_i = emg_i, r = r, i = i, response_type = response_type
+                                )
+                            else:
+                                last_query_idx, gp_mean_pred, gp_std_pred, gp_dur = self.custom_gpbo(
+                                    gp_origin = gp_origin, emg_i = emg_i, r = r, i = i, response_type = response_type
+                                )
+
 
                             if mean_and_std_storage:
                                 self.P_mean_pred[emg_i, r, 0, i, :] = gp_mean_pred   # update the tensor 
@@ -703,9 +870,11 @@ class SimGPBO():
 
                             if clock_storage: 
                                 self.iter_durations[emg_i, r, 0, i] = iter_dur
-                                self.hyp_opti_durations[emg_i, r, 0, i] = hyp_dur
-                                self.mean_calc_durations[emg_i, r, 0, i] = mean_dur
-                                self.std_calc_durations[emg_i, r, 0, i] = std_dur
+                                self.gp_durations[emg_i, r, 0, i] = gp_dur
+                                if gp_origin == 'gpytorch': 
+                                    self.hyp_opti_durations[emg_i, r, 0, i] = hyp_dur
+                                    self.mean_calc_durations[emg_i, r, 0, i] = mean_dur
+                                    self.std_calc_durations[emg_i, r, 0, i] = std_dur
                         
 
 
@@ -719,7 +888,7 @@ class SimGPBO():
                     if intermediate_save:
                         if emg_i != int(self.nb_emg - 1):
                             self.npz_save(clock_storage = clock_storage, mean_and_std_storage = mean_and_std_storage, 
-                                          emg_i = emg_i, r = r)
+                                          gp_origin = gp_origin, emg_i = emg_i, r = r)
 
 
 
@@ -731,7 +900,7 @@ class SimGPBO():
 
 
         ## ----- Final save in the npz file ----- ##
-        self.npz_save(clock_storage = clock_storage, mean_and_std_storage = mean_and_std_storage, final = True)
+        self.npz_save(clock_storage = clock_storage, mean_and_std_storage = mean_and_std_storage, gp_origin = gp_origin, final = True)
 
 
 
