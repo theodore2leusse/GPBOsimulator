@@ -13,7 +13,7 @@ import GPy
 
 class FixedGP:
     """
-    A class representing a Gaussian Process with fixed lengthscales.
+    A class representing a Gaussian Process with fixed hyperparameters.
 
     Methods:
         compute_kernel: Computes the covariance matrix and the kernel vector matrix based on the selected kernel type.

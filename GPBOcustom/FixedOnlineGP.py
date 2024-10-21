@@ -55,9 +55,53 @@ def schur_inverse(Dinv: np.ndarray, B: np.ndarray, A: float):
     
     return Kinv
 
+def standardize_vector(vec: np.ndarray) -> np.ndarray:
+    """standardize a vector
+
+    Args:
+        vec (np.ndarray): the array you want to standardize
+
+    Returns:
+        np.ndarray: the standardized vector
+    """
+    mean = np.mean(vec)
+    std = np.std(vec)
+    return (vec - mean) / std if std != 0 else vec # avoid divide with zero
+
+
 class FixedOnlineGP:
+    """Gaussian Process model with fixed hyperparameters and with online updates without recomputation of the full inverse.
+
+    This class implements a Gaussian Process with the option to update the model online,
+    using different kernel types (e.g., RBF, Matern32, Matern52) without fully recomputing 
+    the kernel inverse at each iteration.
+    
+    Args:
+        input_space (np.ndarray): Input space data points for the model.
+        kernel_type (str, optional): Type of kernel to use ('rbf', 'Mat32', 'Mat52'). Defaults to 'rbf'.
+        noise_std (float, optional): Standard deviation of the noise. Defaults to 0.1.
+        output_std (float, optional): Standard deviation of the output. Defaults to 1.
+        lengthscale (float, optional): Lengthscale parameter for the kernel. Defaults to 0.05.
+        NB_IT (int, optional): Maximum number of iterations or queries. Defaults to the size of the input space.
+
+    Methods:
+        set_kernel(): Sets the kernel function based on the selected kernel type.
+        update_no_schur(query_x, query_y): Updates the Gaussian Process model without using Schur complement.
+        update(query_x, query_y): Updates the Gaussian Process model using Schur complement for efficient updates.
+        predict(): Computes the predicted mean and standard deviation for each point in the input space.
+    """
 
     def __init__(self, input_space: np.ndarray, kernel_type: str = 'rbf', noise_std: float = 0.1, output_std: float = 1, lengthscale: float = 0.05, NB_IT: int = None) -> None:
+        """Initializes the Gaussian Process model with specified hyperparameters.
+
+        Args:
+            input_space (np.ndarray): Input space data points for the model.
+            kernel_type (str, optional): Type of kernel to use ('rbf', 'Mat32', 'Mat52'). Defaults to 'rbf'.
+            noise_std (float, optional): Standard deviation of the noise. Defaults to 0.1.
+            output_std (float, optional): Standard deviation of the output. Defaults to 1.
+            lengthscale (float, optional): Lengthscale parameter for the kernel. Defaults to 0.05.
+            NB_IT (int, optional): Maximum number of iterations or queries. Defaults to the size of the input space.
+        """
         self.input_space = input_space  # Input space
 
         self.kernel_type = kernel_type  # Kernel type
@@ -79,11 +123,10 @@ class FixedOnlineGP:
         self.nb_queries = 0  # Number of training samples
         
     def set_kernel(self) -> None:
-        """
-        set the kernel
+        """Sets the kernel function based on the selected kernel type.
 
         Raises:
-            ValueError: If the kernel_type is not recognized.
+            ValueError: If the kernel_type is not recognized (i.e., not 'rbf', 'Mat32', or 'Mat52').
         """
         if self.kernel_type == 'rbf':
             self.kernel = GPy.kern.RBF(input_dim=self.space_dim, variance=self.output_std**2, lengthscale=self.lengthscale)
@@ -95,11 +138,13 @@ class FixedOnlineGP:
             raise ValueError("The attribute kernel_type is not well defined")
         
     def update_no_schur(self, query_x: np.ndarray, query_y: float) -> None:
-        """_summary_
+        """Updates the Gaussian Process model without using Schur complement.
 
+        This method updates the kernel matrix, inverse, and covariance vectors with new training data.
+        
         Args:
-            query_x (np.ndarray): _description_
-            query_y (float): _description_
+            query_x (np.ndarray): The new input data point for the query.
+            query_y (float): The observed output corresponding to the new query input.
         """
         if self.nb_queries == 0:
 
@@ -141,11 +186,14 @@ class FixedOnlineGP:
         self.nb_queries += 1
 
     def update(self, query_x: np.ndarray, query_y: float) -> None:
-        """_summary_
+        """Updates the Gaussian Process model using Schur complement.
 
+        This method efficiently updates the kernel matrix inverse using the Schur complement
+        for the new training data, avoiding the recomputation of the full inverse.
+        
         Args:
-            query_x (np.ndarray): _description_
-            query_y (float): _description_
+            query_x (np.ndarray): The new input data point for the query. shape is 1D = (space_dim)
+            query_y (float): The observed output corresponding to the new query input. 
         """
         if self.nb_queries == 0:
 
@@ -153,7 +201,7 @@ class FixedOnlineGP:
             self.queries_Y = np.zeros((self.NB_IT, 1))
             self.kernel_vect_mat = np.zeros((self.space_size, self.NB_IT))
 
-            self.queries_X[self.nb_queries, :] = query_x  # query's shape is (space_dim)
+            self.queries_X[self.nb_queries, :] = query_x  # query_x's shape is (space_dim)
             self.queries_Y[self.nb_queries, 0] = query_y  # query_y is float
 
             self.kernel_mat = np.array([[self.output_std**2]])
@@ -180,10 +228,14 @@ class FixedOnlineGP:
         self.nb_queries += 1
 
     def predict(self) -> None:
-        
+        """Computes the predicted mean and standard deviation for each point in the input space.
+
+        Uses the current training data to make predictions on the input space, updating the `mean` and `std` attributes.
+        """
         # Compute the predicted mean and standard deviation for each point in the input space
+        queries_Y_std = standardize_vector(self.queries_Y[:self.nb_queries, 0])
         for i in range(self.space_size):
             kernel_vect = self.kernel_vect_mat[i, :self.nb_queries]  # Covariance vector for the current input space point
-            self.mean[i] = kernel_vect @ self.K_inv @ self.queries_Y[:self.nb_queries, :]  # Compute the mean
+            self.mean[i] = kernel_vect @ self.K_inv @ queries_Y_std  # Compute the mean
             self.std[i] = np.sqrt(self.output_std**2 
                                   - kernel_vect @ self.K_inv @ kernel_vect)  # Compute the standard deviation
