@@ -103,19 +103,17 @@ class FixedGP:
         c, low = cho_factor(K)  # Returns the Cholesky decomposition of the matrix K
         
         # Solve for the inverse of the matrix K using the Cholesky factor
-        K_inv = cho_solve((c, low), np.eye(K.shape[0]))  # Inverse the matrix
+        self.K_inv = cho_solve((c, low), np.eye(K.shape[0]))  # Inverse the matrix
+      
+        # Compute all mean values in one operation
+        self.mean = self.kernel_vect_mat @ (self.K_inv @ self.train_Y[:,0])
 
-        # Initialize mean and standard deviation arrays
-        mean = np.zeros(self.space_size)
-        std = np.zeros(self.space_size)
-        
-        # Compute the predicted mean and standard deviation for each point in the input space
-        for i in range(self.space_size):
-            kernel_vect = self.kernel_vect_mat[i, :]  # Covariance vector for the current input space point
-            mean[i] = kernel_vect @ K_inv @ self.train_Y  # Compute the mean
-            std[i] = np.sqrt(self.output_std**2 
-                             - kernel_vect @ K_inv @ kernel_vect)  # Compute the standard deviation
+        # Compute the std for each point in a vectorized manner
+        kernel_diag = np.einsum('ij,ji->i', self.kernel_vect_mat, self.K_inv @ self.kernel_vect_mat.T)
+        if max(kernel_diag) > self.output_std**2:
+            print('we have a problem, we have a negative variance')
+        self.std = np.sqrt(self.output_std**2 - kernel_diag)
 
-        return mean, std
+        return self.mean, self.std
 
 

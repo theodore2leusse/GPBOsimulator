@@ -10,6 +10,8 @@ The GP can use different kernel types for function approximation with noise.
 import numpy as np
 from scipy.linalg import cho_factor, cho_solve
 import GPy
+import warnings
+import time
 
 def schur_inverse(Dinv: np.ndarray, B: np.ndarray, A: float):
     """
@@ -157,10 +159,16 @@ class FixedOnlineGP:
 
             self.kernel_mat = np.array([[self.output_std**2]])
 
+            tic_inv = time.perf_counter()
+
             self.K_inv = np.array([[1.0 / (self.output_std**2 + self.noise_std**2)]])
+
+            tac_inv = time.perf_counter()
 
             self.kernel_vect_mat[:, self.nb_queries] = self.kernel.K(self.input_space,
                                                                      self.queries_X[self.nb_queries:self.nb_queries+1, :])[:,0] # Covariance vector between input_space et query shape(space_size,1)
+            
+            tac_h = time.perf_counter()
         
         else:
             self.queries_X[self.nb_queries, :] = query_x  # query's shape is (space_dim)
@@ -171,6 +179,8 @@ class FixedOnlineGP:
             self.kernel_mat = np.block([[self.kernel_mat, vect.T          ],       
                                         [vect           , self.output_std**2]])    
 
+            tic_inv = time.perf_counter()
+
             # Add noise to the kernel matrix
             K = self.kernel_mat + self.noise_std**2 * np.eye(self.nb_queries+1)
 
@@ -180,10 +190,16 @@ class FixedOnlineGP:
             # Solve for the inverse of the matrix K using the Cholesky factor
             self.K_inv = cho_solve((c, low), np.eye(K.shape[0]))  # Inverse the matrix
 
+            tac_inv = time.perf_counter()
+
             self.kernel_vect_mat[:, self.nb_queries] = self.kernel.K(self.input_space, 
                                                                      self.queries_X[self.nb_queries:self.nb_queries+1, :])[:,0] # Covariance vector between input_space et query shape(space_size,1)
+            
+            tac_h = time.perf_counter()
 
         self.nb_queries += 1
+
+        return(tac_inv - tic_inv, tac_h - tac_inv)
 
     def update(self, query_x: np.ndarray, query_y: float) -> None:
         """Updates the Gaussian Process model using Schur complement.
@@ -206,10 +222,16 @@ class FixedOnlineGP:
 
             self.kernel_mat = np.array([[self.output_std**2]])
 
+            tic_inv = time.perf_counter()
+
             self.K_inv = np.array([[1.0 / (self.output_std**2 + self.noise_std**2)]])
+
+            tac_inv = time.perf_counter()
 
             self.kernel_vect_mat[:, self.nb_queries] = self.kernel.K(self.input_space,
                                                                      self.queries_X[self.nb_queries:self.nb_queries+1, :])[:,0] # Covariance vector between input_space et query shape(space_size,1)
+            
+            tac_h = time.perf_counter()
         
         else:
             self.queries_X[self.nb_queries, :] = query_x  # query's shape is (space_dim)
@@ -217,25 +239,39 @@ class FixedOnlineGP:
 
             vect = self.kernel.K(self.queries_X[self.nb_queries:self.nb_queries+1, :], self.queries_X[:self.nb_queries, :])      # shape(1, nb_query)
 
-            self.kernel_mat = np.block([[self.kernel_mat, vect.T          ],       
+            self.kernel_mat = np.block([[self.kernel_mat, vect.T            ],       
                                         [vect           , self.output_std**2]])    
+
+            tic_inv = time.perf_counter()
 
             self.K_inv = schur_inverse(A = self.output_std**2 + self.noise_std**2, B = vect, Dinv = self.K_inv)
 
+            tac_inv = time.perf_counter()
+
             self.kernel_vect_mat[:, self.nb_queries] = self.kernel.K(self.input_space, 
                                                                      self.queries_X[self.nb_queries:self.nb_queries+1, :])[:,0] # Covariance vector between input_space et query shape(space_size,1)
+            
+            tac_h = time.perf_counter()
 
         self.nb_queries += 1
+
+        return(tac_inv - tic_inv, tac_h - tac_inv)
 
     def predict(self) -> None:
         """Computes the predicted mean and standard deviation for each point in the input space.
 
         Uses the current training data to make predictions on the input space, updating the `mean` and `std` attributes.
         """
-        # Compute the predicted mean and standard deviation for each point in the input space
-        queries_Y_std = standardize_vector(self.queries_Y[:self.nb_queries, 0])
-        for i in range(self.space_size):
-            kernel_vect = self.kernel_vect_mat[i, :self.nb_queries]  # Covariance vector for the current input space point
-            self.mean[i] = kernel_vect @ self.K_inv @ queries_Y_std  # Compute the mean
-            self.std[i] = np.sqrt(self.output_std**2 
-                                  - kernel_vect @ self.K_inv @ kernel_vect)  # Compute the standard deviation
+
+
+        self.queries_Y_std = standardize_vector(self.queries_Y[:self.nb_queries, 0])
+        
+        # Compute all mean values in one operation
+        self.mean = self.kernel_vect_mat[:, :self.nb_queries] @ (self.K_inv @ self.queries_Y_std)
+
+        # Compute the std for each point in a vectorized manner
+        kernel_diag = np.einsum('ij,ji->i', self.kernel_vect_mat[:, :self.nb_queries], self.K_inv @ self.kernel_vect_mat[:, :self.nb_queries].T)
+        if max(kernel_diag) > self.output_std**2:
+            print('we have a problem, we have a negative variance')
+        self.std = np.sqrt(self.output_std**2 - kernel_diag)
+        
