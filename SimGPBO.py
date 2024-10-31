@@ -416,13 +416,14 @@ class SimGPBO():
             int: The index of the next test point selected based on the acquisition function.
         """
         # best_f = np.max(self.last_used_train_Y) # In theory, it should be best observed value :
-        best_f = self.best_pred_x_measured[emg_i, r, 0, i-1] # best observed value
+        # best_f = self.best_pred_x_measured[emg_i, r, 0, i-1].numpy() # best observed value
+        best_f = self.gp.mean[self.best_pred_x_measured[emg_i, r, 0, i-1].item()]
 
         if AF == 'EI':  # Expected Improvement
             # Compute improvement for each point
             z = (mean - best_f) / (std + 1e-9)  # Add small value to avoid division by zero
             ei = (mean - best_f) * norm.cdf(z) + std * norm.pdf(z) # cdf is Cumulative Distribution Function
-                                                                   # pdf is Probability Density Function
+                                                                # pdf is Probability Density Function
             next_query_idx = np.argmax(ei)  # Index of the point with the highest EI
 
 
@@ -555,6 +556,8 @@ class SimGPBO():
             del self.last_used_train_X
         if hasattr(self, 'last_used_train_Y'):
             del self.last_used_train_Y
+        if hasattr(self, 'gp'):
+            del self.gp
 
     def set_custom_gp_hyperparameters(self, kernel_type: str = 'rbf', noise_std: float = 0.1, output_std: float = 1, lengthscale: float = 0.05) -> None:
         """
@@ -606,7 +609,7 @@ class SimGPBO():
         if i < self.NB_RND: # we chose the next node randomly with next_x_idx
             query_idx = self.rand_idx[emg_i, r, i]    
         else: # we have to use an acquisition function to select the next query 
-            query_idx = self.botorch_AF(AF = self.AF, gp = self.last_used_gp, train_X = self.last_used_train_X,
+            query_idx = self.botorch_AF(AF = self.AF, gp = self.gp, train_X = self.last_used_train_X,
                                                 train_Y = self.last_used_train_Y, X_test_normed = self.X_test_normed)                  
         
         next_x = self.X_test_normed[query_idx]              # input coordonates for the next query
@@ -646,12 +649,12 @@ class SimGPBO():
                                                         # a constant value of 0.15.
                                                         # train_Yvar allows to indicate the observed 
                                                         # measurement noise for each measure
-            gp = SingleTaskGP(train_X, train_Y, train_Yvar = train_Yvar) # create the GP model
+            self.gp = SingleTaskGP(train_X, train_Y, train_Yvar = train_Yvar) # create the GP model
             
         else:
-            gp = SingleTaskGP(train_X, train_Y) # create the GP model
+            self.gp = SingleTaskGP(train_X, train_Y) # create the GP model
         
-        mll = ExactMarginalLogLikelihood(gp.likelihood, gp) # create the log likelihood function 
+        mll = ExactMarginalLogLikelihood(self.gp.likelihood, self.gp) # create the log likelihood function 
 
         tic_hyp = time.perf_counter()
         fit_gpytorch_mll(mll) # optimize the hyperparameters of the GP
@@ -661,10 +664,10 @@ class SimGPBO():
 
         ## ----- get posterior means and std ----- ##
 
-        gp_mean_pred = gp.posterior(self.X_test_normed).mean.flatten() # GP prediction for the mean
+        gp_mean_pred = self.gp.posterior(self.X_test_normed).mean.flatten() # GP prediction for the mean
         tac_mean = time.perf_counter()
 
-        gp_std_pred = torch.sqrt(gp.posterior(self.X_test_normed).variance.flatten()) # GP prediction for the variance
+        gp_std_pred = torch.sqrt(self.gp.posterior(self.X_test_normed).variance.flatten()) # GP prediction for the variance
         tac_std = time.perf_counter()
 
         gp_dur = tac_std - tic_gp
@@ -673,7 +676,6 @@ class SimGPBO():
         std_dur = tac_std - tac_mean
 
         # in order to compute the acquisition function for the next iteration
-        self.last_used_gp = gp
         self.last_used_train_X = train_X
         self.last_used_train_Y = train_Y
 
@@ -711,7 +713,7 @@ class SimGPBO():
         if i < self.NB_RND: # we chose the next node randomly with next_x_idx
             query_idx = self.rand_idx[emg_i, r, i]    
         else: # we have to use an acquisition function to select the next query 
-            query_idx = self.custom_AF(AF = self.AF, mean = self.last_used_gp.mean, std = self.last_used_gp.std, emg_i = emg_i, r = r, i = i)                  
+            query_idx = self.custom_AF(AF = self.AF, mean = self.gp.mean, std = self.gp.std, emg_i = emg_i, r = r, i = i)                  
         
         next_x = self.X_test_normed[query_idx]              # input coordonates for the next query
 
@@ -732,23 +734,23 @@ class SimGPBO():
         tic_gp = time.perf_counter()
 
         if gp_origin == 'custom_FixedOnlineGP':
-            self.fogp.update(query_x = next_x, query_y = resp)
-            self.fogp.predict()
+            self.gp.update(query_x = next_x.numpy(), query_y = resp)
+            self.gp.predict()
             tac_gp = time.perf_counter()
-            gp_mean_pred = torch.from_numpy(self.fogp.mean)
-            gp_std_pred = torch.from_numpy(self.fogp.std)
+            gp_mean_pred = torch.from_numpy(np.copy(self.gp.mean))
+            gp_std_pred = torch.from_numpy(np.copy(self.gp.std))
 
         elif gp_origin == 'custom_FixedOnlineGP_without_schur':
-            self.fogp.update_no_schur(query_x = next_x, query_y = resp)
-            self.fogp.predict()
+            self.gp.update_no_schur(query_x = next_x.numpy(), query_y = resp)
+            self.gp.predict()
             tac_gp = time.perf_counter()
-            gp_mean_pred = torch.from_numpy(gp_mean_pred)
-            gp_std_pred = torch.from_numpy(gp_std_pred)
+            gp_mean_pred = torch.from_numpy(np.copy(self.gp.mean))
+            gp_std_pred = torch.from_numpy(np.copy(self.gp.std))
 
         elif gp_origin == 'custom_FixedGP':
             train_X = self.P_test_x[emg_i, r, :, :int(i+1)] # only focus on what have been updated in
                                                             # P_test_x[emg_i, r] (2d-tensor)
-            train_X = train_X.T                             # transpose the tensor => shape(nb_queries, dim_input_space)
+            train_X = train_X.T                            # transpose the tensor => shape(nb_queries, dim_input_space)
 
             train_Y = self.P_test_y[emg_i, r, 0, :int(i+1)] # only focus on what have been updated in
                                                             # P_test_y[emg_i, r] (1d-tensor)
@@ -759,10 +761,11 @@ class SimGPBO():
                     train_Y = train_Y/train_Y.max() # =1 
             else:
                 train_Y = standardize(train_Y) # (data-mean)/std
-            fgp = FixedGP(input_space = self.X_test_normed, train_X = train_X, train_Y = train_Y,
+
+            self.gp = FixedGP(input_space = self.X_test_normed.numpy(), train_X = train_X.numpy(), train_Y = train_Y.numpy(),
                           kernel_type = self.kernel_type, noise_std = self.noise_std, output_std = self.output_std,
                           lengthscale = self.lengthscale)
-            gp_mean_pred, gp_std_pred = fgp.predict()
+            gp_mean_pred, gp_std_pred = np.copy(self.gp.predict())
             tac_gp = time.perf_counter()
             gp_mean_pred = torch.from_numpy(gp_mean_pred)
             gp_std_pred = torch.from_numpy(gp_std_pred)
@@ -822,10 +825,10 @@ class SimGPBO():
                         queried_loc = [] # initialization of the list of the next_x_idx
                         
                         if custom_OnlineGP_bool:
-                            self.fogp = FixedOnlineGP(input_space= self.X_test_normed, kernel_type= 'rbf', 
+                            self.gp = FixedOnlineGP(input_space= self.X_test_normed.numpy(), kernel_type= 'rbf', 
                                                  noise_std= self.noise_std, output_std= self.output_std, 
                                                  lengthscale= self.lengthscale, NB_IT= self.NB_IT)
-                            self.fogp.set_kernel()
+                            self.gp.set_kernel()
 
                         # loop over the number of node in our grid
                         for i in range(self.NB_IT):
@@ -875,6 +878,7 @@ class SimGPBO():
                                     self.hyp_opti_durations[emg_i, r, 0, i] = hyp_dur
                                     self.mean_calc_durations[emg_i, r, 0, i] = mean_dur
                                     self.std_calc_durations[emg_i, r, 0, i] = std_dur
+                            # print('we have just finished: ',' emg=', emg_i,' rep=', r, ' it=', i)
                         
 
 
@@ -897,11 +901,7 @@ class SimGPBO():
         self.elapsed_time = tac - tic
         print(f"Elapsed time: {self.elapsed_time} seconds")
 
-
-
         ## ----- Final save in the npz file ----- ##
         self.npz_save(clock_storage = clock_storage, mean_and_std_storage = mean_and_std_storage, gp_origin = gp_origin, final = True)
-
-
 
 

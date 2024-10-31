@@ -46,8 +46,13 @@ if __name__ == "__main__":
 
     sim_gpbo = SimGPBO(name = '1st_try', 
                        ds = ds,
-                       AF = 'NEI')
+                       AF = 'EI',
+                       NB_REP = 2,
+                       NB_IT = 60,
+                       )
     
-    sim_gpbo.select_emgs([0])
-    
-    sim_gpbo.run_simulations()
+    # sim_gpbo.select_emgs([0,1])
+
+    sim_gpbo.set_custom_gp_hyperparameters(noise_std= 0.4, lengthscale= 0.01)
+
+    sim_gpbo.run_simulations(gp_origin = 'custom_FixedOnlineGP', mean_and_std_storage = True)
