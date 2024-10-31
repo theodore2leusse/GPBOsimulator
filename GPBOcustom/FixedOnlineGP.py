@@ -167,8 +167,7 @@ class FixedOnlineGP:
 
             self.kernel_vect_mat[:, self.nb_queries] = self.kernel.K(self.input_space,
                                                                      self.queries_X[self.nb_queries:self.nb_queries+1, :])[:,0] # Covariance vector between input_space et query shape(space_size,1)
-            
-            tac_h = time.perf_counter()
+
         
         else:
             self.queries_X[self.nb_queries, :] = query_x  # query's shape is (space_dim)
@@ -194,12 +193,10 @@ class FixedOnlineGP:
 
             self.kernel_vect_mat[:, self.nb_queries] = self.kernel.K(self.input_space, 
                                                                      self.queries_X[self.nb_queries:self.nb_queries+1, :])[:,0] # Covariance vector between input_space et query shape(space_size,1)
-            
-            tac_h = time.perf_counter()
 
         self.nb_queries += 1
 
-        return(tac_inv - tic_inv, tac_h - tac_inv)
+        return(tac_inv - tic_inv)
 
     def update(self, query_x: np.ndarray, query_y: float) -> None:
         """Updates the Gaussian Process model using Schur complement.
@@ -230,8 +227,7 @@ class FixedOnlineGP:
 
             self.kernel_vect_mat[:, self.nb_queries] = self.kernel.K(self.input_space,
                                                                      self.queries_X[self.nb_queries:self.nb_queries+1, :])[:,0] # Covariance vector between input_space et query shape(space_size,1)
-            
-            tac_h = time.perf_counter()
+
         
         else:
             self.queries_X[self.nb_queries, :] = query_x  # query's shape is (space_dim)
@@ -250,12 +246,11 @@ class FixedOnlineGP:
 
             self.kernel_vect_mat[:, self.nb_queries] = self.kernel.K(self.input_space, 
                                                                      self.queries_X[self.nb_queries:self.nb_queries+1, :])[:,0] # Covariance vector between input_space et query shape(space_size,1)
-            
-            tac_h = time.perf_counter()
+
 
         self.nb_queries += 1
 
-        return(tac_inv - tic_inv, tac_h - tac_inv)
+        return(tac_inv - tic_inv)
 
     def predict(self) -> None:
         """Computes the predicted mean and standard deviation for each point in the input space.
