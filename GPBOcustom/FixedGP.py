@@ -68,14 +68,26 @@ class FixedGP:
         Raises:
             ValueError: If the kernel_type is not recognized.
         """
-        if self.kernel_type == 'rbf':
-            self.kernel = GPy.kern.RBF(input_dim=self.space_dim, variance=self.output_std**2, lengthscale=self.lengthscale)
-        elif self.kernel_type == 'Mat32':
-            self.kernel = GPy.kern.Matern32(input_dim=self.space_dim, variance=self.output_std**2, lengthscale=self.lengthscale)
-        elif self.kernel_type == 'Mat52':
-            self.kernel = GPy.kern.Matern52(input_dim=self.space_dim, variance=self.output_std**2, lengthscale=self.lengthscale)
+        if isinstance(self.lengthscale, float) or (isinstance(self.lengthscale, list) and len(self.lengthscale) == 1):     
+            if self.kernel_type == 'rbf':
+                self.kernel = GPy.kern.RBF(input_dim=self.space_dim, variance=self.output_std**2, lengthscale=self.lengthscale)
+            elif self.kernel_type == 'Mat32':
+                self.kernel = GPy.kern.Matern32(input_dim=self.space_dim, variance=self.output_std**2, lengthscale=self.lengthscale)
+            elif self.kernel_type == 'Mat52':
+                self.kernel = GPy.kern.Matern52(input_dim=self.space_dim, variance=self.output_std**2, lengthscale=self.lengthscale)
+            else:
+                raise ValueError("The attribute kernel_type is not well defined")
+        elif len(self.lengthscale) == self.space_dim:
+            if self.kernel_type == 'rbf':
+                self.kernel = GPy.kern.RBF(input_dim=self.space_dim, variance=self.output_std**2, lengthscale=self.lengthscale, ARD=True)
+            elif self.kernel_type == 'Mat32':
+                self.kernel = GPy.kern.Matern32(input_dim=self.space_dim, variance=self.output_std**2, lengthscale=self.lengthscale, ARD=True)
+            elif self.kernel_type == 'Mat52':
+                self.kernel = GPy.kern.Matern52(input_dim=self.space_dim, variance=self.output_std**2, lengthscale=self.lengthscale, ARD=True)
+            else:
+                raise ValueError("The attribute kernel_type is not well defined")
         else:
-            raise ValueError("The attribute kernel_type is not well defined")
+            raise ValueError("The attribute lengthscale is not well defined")
 
     def compute_kernel(self) -> None:
         """
