@@ -28,20 +28,21 @@ def schur_inverse(Dinv: np.ndarray, B: np.ndarray, A: float):
     Returns:
         Kinv (np.array): The inverse of the block matrix K.
     """
+    Dinv_Btransp = Dinv @ B.T
     
     # Step 1: Compute the Schur complement of D in K
     # S = A - B @ Dinv @ B.T
-    Schur_complement = A - B @ Dinv @ B.T
+    Schur_complement = A - B @ Dinv_Btransp
     
     # Step 2: Compute the inverse of the Schur complement (since it's scalar, we just invert it)
     Schur_complement_inv = 1.0 / Schur_complement
     
     # Step 3: Compute the blocks of the inverse matrix Kinv
     # Top-left block: Dinv + Dinv @ B.T @ (A - B @ Dinv @ B.T)^-1 @ B @ Dinv
-    K11_inv = Dinv + Dinv @ B.T * Schur_complement_inv @ B @ Dinv
+    K11_inv = Dinv + Dinv_Btransp @ (Schur_complement_inv * Dinv_Btransp.T)
     
     # Top-right block: - Dinv @ B.T @ (A - B @ Dinv @ B.T)^-1
-    K12_inv = - Dinv @ B.T * Schur_complement_inv
+    K12_inv = - Dinv_Btransp * Schur_complement_inv
     
     # Bottom-left block: same as K12_inv.T because of symmetry
     K21_inv = K12_inv.T
