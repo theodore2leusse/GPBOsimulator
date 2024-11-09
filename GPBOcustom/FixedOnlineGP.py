@@ -69,7 +69,7 @@ def standardize_vector(vec: np.ndarray) -> np.ndarray:
     """
     mean = np.mean(vec)
     std = np.std(vec)
-    return (vec - mean) / std if std != 0 else vec # avoid divide with zero
+    return (vec - mean) / std if std != 0 else vec/vec # avoid divide with zero
 
 
 class FixedOnlineGP:
