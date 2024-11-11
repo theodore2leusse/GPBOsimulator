@@ -111,7 +111,7 @@ class SimGPBO():
         # we need to load data from our dataset, if this isn't already the case. 
         if len(ds.set)  == 0:
             ds.load_matlab_data()
-        if AF == 'UCB' and self.KAPPA is None:
+        if AF == 'UCB' and KAPPA is None:
             raise ValueError("KAPPA is not specified while UCB is the chosen acquisition function")
 
         self.name = name
