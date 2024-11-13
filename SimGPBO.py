@@ -515,7 +515,7 @@ class SimGPBO():
 
         if final:
             print("final save of {0} in:   {1}".format(self.name,
-                    'results/gpbo_{3}_{0}_{1}_{2}'.format(self.AF, self.ds.dataset_name, self.name, gp_origin)))
+                    'results/gpbo_{3}_{0}_{1}_{2}.npz'.format(self.AF, self.ds.dataset_name, self.name, gp_origin)))
             
     def erase_storage(self) -> None:
         """Erases stored attributes to free up memory after saving results.
