@@ -8,3 +8,5 @@ __pycache__/
 draft.ipynb
 simu_GPBO.py
 
+gpbo_*
+*.png

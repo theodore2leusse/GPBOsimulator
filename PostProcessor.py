@@ -17,7 +17,7 @@ class PostProcessor():
         path_to_npz_file (str): The file path to the npz file containing the dataset.
         dataset_name (str): The name of the dataset being used.
         data (dict(np.array)): npz file contents, containing the saved experiment data.
-        P_test_x (np.array): Entry coordinates of the queries during the simulation, 
+        P_test_x (np.array): input coordinates of the queries during the simulation, 
                             shaped as (nb_emg, NB_REP, space_dim, nb_it).
         P_test_y (np.array): Responses to the queries, shaped as (nb_emg, NB_REP, 1, nb_it).
         P_mean_pred (np.array): Mean predictions for each iteration, 
@@ -101,8 +101,8 @@ class PostProcessor():
         """
         self.data = np.load(self.path_to_npz_file, allow_pickle = True) # TODO ???
         # Access the different variables that were saved
-        self.P_test_x = self.data['P_test_x']            # Tensor storing queries' entry coordinates 
-        self.P_test_x_idx = self.data['P_test_x_idx']    # Tensor storing queries' entry idx
+        self.P_test_x = self.data['P_test_x']            # Tensor storing queries' input coordinates 
+        self.P_test_x_idx = self.data['P_test_x_idx']    # Tensor storing queries' input idx
         self.P_test_y = self.data['P_test_y']            # Tensor storing the corresponding responses to the queries
         if load_mean: 
             self.P_mean_pred = self.data['P_mean_pred']  # Tensor storing mean in the search space after each iteration 
@@ -117,11 +117,12 @@ class PostProcessor():
         self.NB_REP = self.P_test_x_idx.shape[1]         # nb of repetitions used in the simulation
         self.nb_it = self.P_test_x_idx.shape[3]          # nb of iterations used in the simulation
         if load_durations:
-            self.elapsed_time = self.data['elapsed_time']               # save the simulation duration
-            self.iter_durations = self.data['iter_durations']           # save the iteration duration for each it
-            self.hyp_opti_durations = self.data['hyp_opti_durations']   # save the hyperparameters' optimization duration for each it
-            self.mean_calc_durations = self.data['mean_calc_durations'] # save the mean calculation duration for each it
-            self.std_calc_durations = self.data['std_calc_durations']   # save the std calculation duration for each it
+            self.elapsed_time = self.data['elapsed_time']               # get the simulation duration
+            self.iter_durations = self.data['iter_durations']           # get the iteration duration for each it
+            self.gp_durations = self.data.get('gp_durations')             # get the gp calculation durations for eacg it if they exist
+            self.hyp_opti_durations = self.data.get('hyp_opti_durations')   # get the hyperparameters' optimization duration for each it if they exist
+            self.mean_calc_durations = self.data.get('mean_calc_durations') # get the mean calculation duration for each it if they exist
+            self.std_calc_durations = self.data.get('std_calc_durations')   # get the std calculation duration for each it if they exist
 
     def exploration(self, emgs_idx: list[int] = None, REP_idx: list[int] = None, status: str = 'offline') ->  np.ndarray:
         """
@@ -221,16 +222,18 @@ class PostProcessor():
         if emgs_idx is None:
             emgs_idx = list(range(self.nb_emg))
         if REP_idx is None:
-            perf_iter = np.mean(self.iter_durations[emgs_idx, :, :, :], axis = (0,1,2))      
-            perf_hyp = np.mean(self.hyp_opti_durations[emgs_idx, :, :, :], axis = (0,1,2))
-            perf_mean = np.mean(self.mean_calc_durations[emgs_idx, :, :, :], axis = (0,1,2))
-            perf_std = np.mean(self.std_calc_durations[emgs_idx, :, :, :], axis = (0,1,2))
+            perf_iter = np.mean(self.iter_durations[emgs_idx, :, :, :], axis=(0,1,2))
+            perf_gp = np.mean(self.gp_durations[emgs_idx, :, :, :], axis=(0,1,2)) if self.gp_durations is not None else np.nan
+            perf_hyp = np.mean(self.hyp_opti_durations[emgs_idx, :, :, :], axis=(0,1,2)) if self.hyp_opti_durations is not None else np.nan
+            perf_mean = np.mean(self.mean_calc_durations[emgs_idx, :, :, :], axis=(0,1,2)) if self.mean_calc_durations is not None else np.nan
+            perf_std = np.mean(self.std_calc_durations[emgs_idx, :, :, :], axis=(0,1,2)) if self.std_calc_durations is not None else np.nan
         else:
-            perf_iter = np.mean(self.iter_durations[emgs_idx, REP_idx, :, :], axis = (0,1,2))      
-            perf_hyp = np.mean(self.hyp_opti_durations[emgs_idx, REP_idx, :, :], axis = (0,1,2))
-            perf_mean = np.mean(self.mean_calc_durations[emgs_idx, REP_idx, :, :], axis = (0,1,2))
-            perf_std = np.mean(self.std_calc_durations[emgs_idx, REP_idx, :, :], axis = (0,1,2))
-        return(perf_iter, perf_hyp, perf_mean, perf_std)
+            perf_iter = np.mean(self.iter_durations[emgs_idx, REP_idx, :, :], axis=(0,1,2))
+            perf_gp = np.mean(self.gp_durations[emgs_idx, REP_idx, :, :], axis=(0,1,2)) if self.gp_durations is not None else np.nan
+            perf_hyp = np.mean(self.hyp_opti_durations[emgs_idx, REP_idx, :, :], axis=(0,1,2)) if self.hyp_opti_durations is not None else np.nan
+            perf_mean = np.mean(self.mean_calc_durations[emgs_idx, REP_idx, :, :], axis=(0,1,2)) if self.mean_calc_durations is not None else np.nan
+            perf_std = np.mean(self.std_calc_durations[emgs_idx, REP_idx, :, :], axis=(0,1,2)) if self.std_calc_durations is not None else np.nan
+        return(perf_iter, perf_gp, perf_hyp, perf_mean, perf_std)
 
 
 
