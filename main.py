@@ -41,7 +41,7 @@ from SimGPBO import SimGPBO
 
 if __name__ == "__main__":
 
-    ds = DataSet('data/','nhp','Cebus1_M1_190221.mat','first_GPBO_validResponses')
+    ds = DataSet('../data/','nhp','Cebus1_M1_190221.mat','first_GPBO_validResponses')
     ds.load_matlab_data() # load data from the dataset_file
 
     sim_gpbo = SimGPBO(name = '1st_try', 

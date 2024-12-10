@@ -68,6 +68,9 @@ class SimGPBO():
         initialize_storage_mean_and_std_tensors() -> None:
             Initializes the tensors used to store the predicted mean and standard deviation for each iteration.
 
+        initialize_storage_hyperparams() -> None:
+            Initializes the tensors used to store the hyperparams.
+
         botorch_AF(AF: str, gp, train_X: torch.Tensor, train_Y: torch.Tensor, X_test_normed: torch.Tensor) -> int:
             Selects the next query point based on the acquisition function (AF) applied to the normalized test points.
 
@@ -83,10 +86,10 @@ class SimGPBO():
         set_custom_gp_hyperparameters(self, kernel_type: str = 'rbf', noise_std: float = 0.1, output_std: float = 1, lengthscale: float = 0.05) -> None:
             Sets the hyperparameters for the Gaussian Process (GP) model. Is only usefull if custom gps are used !
 
-        gpytorch_gpbo(emg_i:int, r: int, i: int, response_type: str = 'valid') -> tuple[list, torch.Tensor, torch.Tensor, float, float, float]:
+        gpytorch_gpbo(emg_i:int, r: int, i: int, response_type: str = 'valid') -> tuple[list, torch.Tensor, torch.Tensor, float, float, float, dict]:
             Performs a single iteration of Gaussian Process Bayesian Optimization (GPBO).
 
-        run_simulations(manual_seed: bool = True, clock_storage: bool = True, mean_and_std_storage: bool = False, intermediate_save: bool = False, response_type: str = 'valid') -> None:
+        run_simulations(manual_seed: bool = True, clock_storage: bool = True, hyperparams_storage: bool = False, mean_and_std_storage: bool = False, intermediate_save: bool = False, response_type: str = 'valid') -> None:
             Execute multiple simulations for Gaussian Process Bayesian Optimization (GPBO) over a defined number of EMG signals and repetitions.
     """
 
@@ -347,6 +350,56 @@ class SimGPBO():
             dtype=torch.float64
         )
 
+    def initialize_storage_hyperparams(self) -> None:
+        """
+        Initializes the tensors used to store the Gaussian Process (GP) hyperparameters 
+        for each iteration during the optimization process.
+
+        This method sets up four tensors:
+        - `hyperparams_l1`: To store the first dimension of the GP lengthscale for each iteration.
+        - `hyperparams_l2`: To store the second dimension of the GP lengthscale for each iteration.
+        - `hyperparams_output_std`: To store the output standard deviation (outputscale) for each iteration.
+        - `hyperparams_noise_std`: To store the noise standard deviation for each iteration.
+
+        These tensors are initialized with zeros and will be progressively filled 
+        during the optimization process.
+
+        Shape:
+            - (nb_emg, NB_REP, 1, NB_IT, space_size) for all tensors.
+            - nb_emg: Number of EMG channels.
+            - NB_REP: Number of repetitions per test.
+            - NB_IT: Number of iterations.
+            - space_size: Size of the search space.
+
+        Notes:
+            - The GP lengthscale is assumed to have at least two dimensions (`l1` and `l2`).
+            - The space_size dimension is included for consistency but may not be required 
+            for all hyperparameters. Adjust this if necessary.
+        """
+        # Tensor to store the first dimension of the lengthscale (l1)
+        self.hyperparams_l1 = torch.zeros(
+            (self.nb_emg, self.NB_REP, 1, self.NB_IT),
+            dtype=torch.float64
+        )
+
+        # Tensor to store the second dimension of the lengthscale (l2)
+        self.hyperparams_l2 = torch.zeros(
+            (self.nb_emg, self.NB_REP, 1, self.NB_IT),
+            dtype=torch.float64
+        )
+
+        # # Tensor to store the output standard deviation (outputscale)
+        # self.hyperparams_output_std = torch.zeros(
+        #     (self.nb_emg, self.NB_REP, 1, self.NB_IT),
+        #     dtype=torch.float64
+        # )
+
+        # Tensor to store the noise standard deviation
+        self.hyperparams_noise_std = torch.zeros(
+            (self.nb_emg, self.NB_REP, 1, self.NB_IT),
+            dtype=torch.float64
+        )
+
     def botorch_AF(self, AF: str, gp, train_X: torch.Tensor, train_Y: torch.Tensor, X_test_normed: torch.Tensor) -> int:
         """Selects the next query point based on the acquisition function (AF) applied to the normalized test points, using botorch librairie.
 
@@ -463,11 +516,12 @@ class SimGPBO():
             raise ValueError("response_type is not well defined")
         return(resp)
     
-    def npz_save(self, clock_storage: bool, mean_and_std_storage: bool, gp_origin: str = 'gpytorch', final: bool = False, emg_i: int = None, r: int = None) -> None:
+    def npz_save(self, clock_storage: bool, hyperparams_storage: bool, mean_and_std_storage: bool, gp_origin: str = 'gpytorch', final: bool = False, emg_i: int = None, r: int = None) -> None:
         """Saves the GPBO results to a .npz file, with optional storage of mean/std predictions and clock durations.
 
         Args:
             clock_storage (bool): Whether to save iteration and calculation durations.
+            hyperparams_storage (bool): Whether to save hyperparams.
             mean_and_std_storage (bool): Whether to save mean and standard deviation predictions.
             gp_origin (str, optional): Specifies the gp we will use in our simulation. Can be 'gpytroch', 'custom_FixedOnlineGP', 'custom_FixedOnlineGP_without_schur' or 'custom_FixedGP'. Defaults to 'gpytorch'. 
             final (bool, optional): If True, indicates final save. Defaults to False.
@@ -503,6 +557,15 @@ class SimGPBO():
                     'mean_calc_durations': self.mean_calc_durations,
                     'std_calc_durations': self.std_calc_durations,
                 })
+
+        if hyperparams_storage:
+            save_dict.update({
+                'lengthscale 1': self.hyperparams_l1,
+                'lengthscale 2': self.hyperparams_l2,
+                # 'output std': self.hyperparams_output_std,
+                'noise_std': self.hyperparams_noise_std,
+            })
+
 
         # Add state of the simulation
         if final:
@@ -578,7 +641,7 @@ class SimGPBO():
         self.output_std = output_std
         self.lengthscale = lengthscale
 
-    def gpytorch_gpbo(self, emg_i:int, r: int, i: int, response_type: str = 'valid') -> tuple[list, torch.Tensor, torch.Tensor, float, float, float]:
+    def gpytorch_gpbo(self, emg_i:int, r: int, i: int, response_type: str = 'valid') -> tuple[list, torch.Tensor, torch.Tensor, float, float, float, dict]:
         """Performs a single iteration of Gaussian Process Bayesian Optimization (GPBO) with the gpytorch and botorch librairies.
 
         This method selects the next query point using either a random or acquisition-based strategy,
@@ -603,6 +666,7 @@ class SimGPBO():
                 - hyp_dur (float): Duration of hyperparameter optimization in seconds.
                 - mean_dur (float): Duration of mean prediction computation in seconds.
                 - std_dur (float): Duration of standard deviation prediction computation in seconds.
+                - hyperparams (dict): Optimized hyperparameters of the GP model.
         """
         ## ----- Select the next query and get a response ----- ##
 
@@ -662,6 +726,16 @@ class SimGPBO():
 
 
 
+        ## ----- Extract hyperparameters ----- ##
+
+        hyperparams = {
+            'lengthscale 1': self.gp.covar_module.lengthscale[0,0].item(),
+            'lengthscale 2': self.gp.covar_module.lengthscale[0,1].item(),
+            'noise std': self.gp.likelihood.noise[-1].sqrt().item()
+        }
+
+
+
         ## ----- get posterior means and std ----- ##
 
         gp_mean_pred = self.gp.posterior(self.X_test_normed).mean.flatten() # GP prediction for the mean
@@ -679,7 +753,7 @@ class SimGPBO():
         self.last_used_train_X = train_X
         self.last_used_train_Y = train_Y
 
-        return(query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, mean_dur, std_dur)
+        return(query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, mean_dur, std_dur, hyperparams)
     
     def custom_gpbo(self, gp_origin: str, emg_i:int, r: int, i: int, response_type: str = 'valid') -> tuple[list, torch.Tensor, torch.Tensor, float, float, float]:
         """Performs a single iteration of Gaussian Process Bayesian Optimization (GPBO) with custom GP and AF.
@@ -776,7 +850,7 @@ class SimGPBO():
 
         return(query_idx, gp_mean_pred, gp_std_pred, gp_dur)
 
-    def run_simulations(self, manual_seed: bool = True, clock_storage: bool = True,
+    def run_simulations(self, manual_seed: bool = True, clock_storage: bool = True, hyperparams_storage: bool = False,
                         mean_and_std_storage: bool = False, intermediate_save: bool = False, 
                         response_type: str = 'valid', gp_origin: str = 'gpytorch') -> None:
         """Execute multiple simulations for Gaussian Process Bayesian Optimization (GPBO) over a defined number of
@@ -785,6 +859,7 @@ class SimGPBO():
         Args:
             manual_seed (bool, optional): If True, sets the random seed for reproducibility of results. Defaults to True.
             clock_storage (bool, optional): If True, initializes storage for timing metrics during the simulation. Defaults to True.
+            hyperparams_storage (bool, optional): If True, initializes storage for hyperparams during the simulation. Defaults to False.
             mean_and_std_storage (bool, optional): If True, initializes storage for mean and standard deviation tensors from the GP model. Defaults to False.
             intermediate_save (bool, optional): If True, save the data collected after each eng loop. Defaults to False.
             response_type (str, optional): Can be 'valid', 'realistic' or 'mean'. Find out how to select answers for a particular query. Defaults to 'valid'.
@@ -808,6 +883,8 @@ class SimGPBO():
                 self.initialize_storage_clock_tensors(gp_origin = 'gpytorch')
             if mean_and_std_storage:
                 self.initialize_storage_mean_and_std_tensors()
+            if hyperparams_storage:
+                self.initialize_storage_hyperparams()
 
             custom_OnlineGP_bool = (gp_origin == 'custom_FixedOnlineGP') or (gp_origin == 'custom_FixedOnlineGP_without_schur')
 
@@ -840,7 +917,7 @@ class SimGPBO():
                             ## ----- GPBO ----- ##
 
                             if gp_origin == 'gpytorch':
-                                last_query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, mean_dur, std_dur = self.gpytorch_gpbo(
+                                last_query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, mean_dur, std_dur, hyperparams = self.gpytorch_gpbo(
                                     emg_i = emg_i, r = r, i = i, response_type = response_type
                                 )
                             else:
@@ -878,7 +955,17 @@ class SimGPBO():
                                     self.hyp_opti_durations[emg_i, r, 0, i] = hyp_dur
                                     self.mean_calc_durations[emg_i, r, 0, i] = mean_dur
                                     self.std_calc_durations[emg_i, r, 0, i] = std_dur
-                            # print('we have just finished: ',' emg=', emg_i,' rep=', r, ' it=', i)
+
+
+
+                            ## ----- update clock metric tensors ----- ##
+
+                            if hyperparams_storage:
+                                self.hyperparams_l1[emg_i, r, 0, i] = hyperparams['lengthscale 1']
+                                self.hyperparams_l2[emg_i, r, 0, i] = hyperparams['lengthscale 2']
+                                # self.hyperparams_output_std[emg_i, r, 0, i] = hyperparams['outputscale']
+                                self.hyperparams_noise_std[emg_i, r, 0, i] = hyperparams['noise std']
+
                         
 
 
@@ -902,6 +989,6 @@ class SimGPBO():
         print(f"Elapsed time: {self.elapsed_time} seconds")
 
         ## ----- Final save in the npz file ----- ##
-        self.npz_save(clock_storage = clock_storage, mean_and_std_storage = mean_and_std_storage, gp_origin = gp_origin, final = True)
+        self.npz_save(clock_storage = clock_storage, hyperparams_storage=hyperparams_storage, mean_and_std_storage = mean_and_std_storage, gp_origin = gp_origin, final = True)
 
 
