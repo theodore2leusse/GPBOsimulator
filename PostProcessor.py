@@ -56,7 +56,7 @@ class PostProcessor():
         self.dataset_name = dataset_name
         self.data = {}
 
-    def load_data(self, load_mean: bool = False, load_std: bool = False, load_durations = False) -> None:
+    def load_data(self, load_mean: bool = False, load_std: bool = False, load_durations = False, load_hyperparams = False) -> None:
         """
         load the data of the npz file 
 
@@ -64,6 +64,7 @@ class PostProcessor():
             load_mean (bool, optional): True if you want to load the mean for each it. Defaults to 'False'.
             load_std (bool, optional): True if you want to load the std for each it. Defaults to 'False'.
             load_durations (bool, optional): True if you want to load the different durations for each it. Defaults to 'False'.
+            load_hyperparams (bool, optional): True if you want to load the hyperparameters for each it. Defaults to 'False'.
 
         Update:
             SET (dict): dict_keys(['emgs', 'nChan', 'sorted_isvalid', 'sorted_resp',
@@ -121,8 +122,10 @@ class PostProcessor():
             self.iter_durations = self.data['iter_durations']           # get the iteration duration for each it
             self.gp_durations = self.data.get('gp_durations')             # get the gp calculation durations for eacg it if they exist
             self.hyp_opti_durations = self.data.get('hyp_opti_durations')   # get the hyperparameters' optimization duration for each it if they exist
-            self.mean_calc_durations = self.data.get('mean_calc_durations') # get the mean calculation duration for each it if they exist
-            self.std_calc_durations = self.data.get('std_calc_durations')   # get the std calculation duration for each it if they exist
+        if load_hyperparams:
+            self.hyperparams_lengthscale = self.data['lengthscale']
+            self.hyperparams_outputscale = self.data['outputscale']
+            self.hyperparams_noise = self.data['noise']
 
     def exploration(self, emgs_idx: list[int] = None, REP_idx: list[int] = None, status: str = 'offline') ->  np.ndarray:
         """
@@ -234,7 +237,34 @@ class PostProcessor():
             perf_mean = np.mean(self.mean_calc_durations[emgs_idx, REP_idx, :, :], axis=(0,1,2)) if self.mean_calc_durations is not None else np.nan
             perf_std = np.mean(self.std_calc_durations[emgs_idx, REP_idx, :, :], axis=(0,1,2)) if self.std_calc_durations is not None else np.nan
         return(perf_iter, perf_gp, perf_hyp, perf_mean, perf_std)
+    
+    def hyperparams_metrics(self, emgs_idx: list[int] = None, REP_idx: int = None) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Calculate the hyperparameter metrics. This metric consists of averaging the various 
+        hyperparameters over emgs and repetitions. 
+        Args:
+            emgs_idx (list[int], optional): list of the emgs you want to consider to calculate the 
+                                            metric. Defaults to None what correspond to all the emgs.
+            REP_idx (int, optional): the repetition you want to consider to calculate 
+                                    the metric. Defaults to None what correspond to all the 
+                                    repetitions.
 
-
-
+        Returns:
+            tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: 
+                A tuple containing four numpy arrays, each with shape (nb_it):
+                    - perf_lengthscale (np.ndarray): The mean of each lengthscale of each iteration.
+                    - perf_outputscale (np.ndarray): The mean outputscale of each iteration.
+                    - perf_noise (np.ndarray): The mean noise of each iteration.
+        """
+        if emgs_idx is None:
+            emgs_idx = list(range(self.nb_emg))
+        if REP_idx is None:
+            lengthscale = np.mean(self.hyperparams_lengthscale[emgs_idx, :, :, :],axis=(0,1))
+            outputscale = np.mean(self.hyperparams_outputscale[emgs_idx, :, :, :],axis=(0,1,2))
+            noise = np.mean(self.hyperparams_noise[emgs_idx, :, :, :],axis=(0,1,2))
+        else:
+            lengthscale = np.mean(self.hyperparams_lengthscale[emgs_idx, REP_idx, :, :],axis=(0,1))
+            outputscale = np.mean(self.hyperparams_outputscale[emgs_idx, REP_idx, :, :],axis=(0,1,2))
+            noise = np.mean(self.hyperparams_noise[emgs_idx, REP_idx, :, :],axis=(0,1,2))
+        return(lengthscale, outputscale, noise)
 
