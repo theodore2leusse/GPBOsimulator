@@ -778,15 +778,15 @@ class SimGPBO():
         if i == 0:
             self.likelihood = gpytorch.likelihoods.GaussianLikelihood()
             self.gp = GPytorchModel(
-                self.train_X,
-                self.train_Y,
+                train_X,
+                train_Y,
                 self.likelihood,
                 kernel_type='Matern52'
             )
         else:
             self.gp.set_train_data(
-                self.train_X,
-                self.train_Y,
+                train_X,
+                train_Y,
                 strict=False,
             )
 
@@ -794,7 +794,7 @@ class SimGPBO():
 
         # Find optimal model hyperparameters
         tic_hyp = time.perf_counter()
-        self.gp.train_model(self.train_X, self.train_Y, max_iters=100, lr=0.1, Verbose=False)
+        self.gp.train_model(train_X, train_Y, max_iters=100, lr=0.1, Verbose=False)
         tac_hyp = time.perf_counter()
 
 

@@ -150,16 +150,11 @@ class PostProcessor():
             rep_id = 0
             for rep in REP_idx:
                 for it in range(self.nb_it): 
-                    best_x = self.best_pred_x_measured[emg_i, rep, 0, it] # best prediction's electrode_id that has 
-                                                                          # already been measured (int)
-                    if status == 'online':
-                        perf_explore[emg_i_id, rep_id, it] = (np.max(self.P_mean_pred[emg_i, rep, 0, it, :]) *
-                                                              self.ds_set['sorted_respMean'][best_x, emg_i]) 
-                    elif status == 'offline':
-                        perf_explore[emg_i_id, rep_id, it] = ((self.ds_set['sorted_respMean'][best_x, emg_i] - 
-                                                               np.min(self.ds_set['sorted_respMean'][:, emg_i])) /
-                                                              (np.max(self.ds_set['sorted_respMean'][:, emg_i]) -
-                                                               np.min(self.ds_set['sorted_respMean'][:, emg_i]))) # fill the array 
+                    best_x = self.best_pred_x[emg_i, rep, 0, it] # best prediction's electrode_id (int)
+                    perf_explore[emg_i_id, rep_id, it] = ((self.ds_set['sorted_respMean'][best_x, emg_i] - 
+                                                           np.min(self.ds_set['sorted_respMean'][:, emg_i])) /
+                                                          (np.max(self.ds_set['sorted_respMean'][:, emg_i]) -
+                                                           np.min(self.ds_set['sorted_respMean'][:, emg_i]))) # fill the array 
                 rep_id += 1
             emg_i_id += 1
         return(np.mean(perf_explore, axis = (0,1)))
@@ -188,16 +183,11 @@ class PostProcessor():
             for rep in REP_idx:
                 for it in range(self.nb_it): 
                     curr_x = self.P_test_x_idx[emg_i, rep, 0, it] # last electrode_id evaluated (int)
-                    best_x = self.best_pred_x_measured[emg_i, rep, 0, it] # best prediction's electrode_id that has 
-                                                                          # already been measured (int)
-                    if status == 'online':
-                        perf_exploit[emg_i_id, rep_id, it] = (self.P_mean_pred[emg_i, rep, 0, it, curr_x] * 
-                                                              self.ds_set['sorted_respMean'][best_x, emg_i])
-                    elif status =='offline':          
-                        perf_exploit[emg_i_id, rep_id, it] = ((self.ds_set['sorted_respMean'][curr_x, emg_i] - 
-                                                               np.min(self.ds_set['sorted_respMean'][:, emg_i])) /
-                                                              (np.max(self.ds_set['sorted_respMean'][:, emg_i]) -
-                                                               np.min(self.ds_set['sorted_respMean'][:, emg_i]))) # fill the array
+                    best_x = self.best_pred_x[emg_i, rep, 0, it] # best prediction's electrode_id (int)      
+                    perf_exploit[emg_i_id, rep_id, it] = ((self.ds_set['sorted_respMean'][curr_x, emg_i] - 
+                                                           np.min(self.ds_set['sorted_respMean'][:, emg_i])) /
+                                                          (np.max(self.ds_set['sorted_respMean'][:, emg_i]) -
+                                                           np.min(self.ds_set['sorted_respMean'][:, emg_i]))) # fill the array
                 rep_id += 1
             emg_i_id += 1
         return(np.mean(perf_exploit, axis = (0,1)))

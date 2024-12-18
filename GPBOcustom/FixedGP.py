@@ -126,6 +126,6 @@ class FixedGP:
             print('we have a problem, we have a negative variance')
         self.std = np.sqrt(self.output_std**2 - kernel_diag)
 
-        return self.mean, self.std
+        return self.mean.clone(), self.std.clone()
 
 
