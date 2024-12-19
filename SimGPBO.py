@@ -25,10 +25,11 @@ from scipy.stats import norm
 
 # import file 
 from DataSet import DataSet
-from GPBOcustom.FixedGP import FixedGP
-from GPBOcustom.FixedOnlineGP import FixedOnlineGP
-from GPBOcustom.BOtorchModel import BOtorchModel
-from GPBOcustom.GPytorchModel import GPytorchModel
+# from GPBOcustom.FixedGP import FixedGP
+# from GPBOcustom.FixedOnlineGP import FixedOnlineGP
+# from GPBOcustom.BOtorchModel import BOtorchModel
+# from GPBOcustom.GPytorchModel import GPytorchModel
+from GPcustom.models import FixedGP, FixedOnlineGP, BOtorchModel, GPytorchModel
 
 class SimGPBO():
     """
