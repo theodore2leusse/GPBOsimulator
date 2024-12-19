@@ -33,6 +33,14 @@ class FixedGP:
         kernel (GPy.kern): The kernel object used in the GP.
         kernel_mat (np.ndarray): The covariance matrix of the training inputs.
         kernel_vect_mat (np.ndarray): The covariance matrix between input space and training inputs.
+        K_inv (np.ndarray): The inverse of the kernel matrix.
+        mean (np.ndarray): The predicted mean values at the input space.
+        std (np.ndarray): The predicted standard deviations at the input space.
+
+    Methods:
+        set_kernel: Sets the kernel based on the specified type and hyperparameters.
+        compute_kernel: Computes the covariance matrices for the GP model.
+        predict: Predicts the mean and standard deviation of the GP for the input space.
     """
 
     def __init__(self, input_space: np.ndarray, train_X: np.ndarray, train_Y: np.ndarray, kernel_type: str = 'rbf', noise_std=0.1, output_std=1, lengthscale=0.05) -> None:
@@ -63,10 +71,10 @@ class FixedGP:
 
     def set_kernel(self) -> None:
         """
-        set the kernel
+        Sets the kernel object based on the kernel type and hyperparameters.
 
         Raises:
-            ValueError: If the kernel_type is not recognized.
+            ValueError: If `kernel_type` is not recognized or `lengthscale` is invalid.
         """
         if isinstance(self.lengthscale, float) or (isinstance(self.lengthscale, list) and len(self.lengthscale) == 1):     
             if self.kernel_type == 'rbf':
@@ -102,8 +110,8 @@ class FixedGP:
 
         Returns:
             tuple[np.ndarray, np.ndarray]: A tuple containing:
-                - mean (np.ndarray): The predicted mean values at the input space.
-                - std (np.ndarray): The predicted standard deviations at the input space.
+                - mean (np.ndarray): Predicted mean values for the input space (shape: (space_size,)).
+                - std (np.ndarray): Predicted standard deviations for the input space (shape: (space_size,)).
         """
         self.set_kernel()
         self.compute_kernel()  # Compute kernel matrices
@@ -124,8 +132,8 @@ class FixedGP:
         kernel_diag = np.einsum('ij,ji->i', self.kernel_vect_mat, self.K_inv @ self.kernel_vect_mat.T)
         if max(kernel_diag) > self.output_std**2:
             print('we have a problem, we have a negative variance')
-        self.std = np.sqrt(self.output_std**2 - kernel_diag)
+        self.std = np.sqrt(self.output_std**2 - kernel_diag + self.noise_std**2)
 
-        return self.mean.clone(), self.std.clone()
+        return self.mean.copy(), self.std.copy()
 
 
