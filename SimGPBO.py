@@ -30,6 +30,7 @@ from DataSet import DataSet
 # from GPBOcustom.BOtorchModel import BOtorchModel
 # from GPBOcustom.GPytorchModel import GPytorchModel
 from GPcustom.models import FixedGP, FixedOnlineGP, BOtorchModel, GPytorchModel
+from QueriesInfo import QueriesInfo
 
 class SimGPBO():
     """
@@ -48,6 +49,7 @@ class SimGPBO():
         nb_emg (int): The number of EMG signals in the dataset.
         space_size (int): The size of the electrodes in the chip.
         space_dim (int): The number of dimensions in the input space.
+        space_shape (tuple of int): shape of the input space.
         nb_emg (int): The number of EMG signals in the dataset.
         X_input_space (torch.Tensor): The normalized coordinates of the points of the input space.
         P_test_x (torch.Tensor): The coordinates of the test queries.
@@ -126,6 +128,7 @@ class SimGPBO():
         self.nb_emg = len(self.ds.set['emgs'])          # nb of emgs
         self.space_size = self.ds.set['ch2xy'].shape[0] # nb of electrodes in our chip
         self.space_dim = self.ds.set['ch2xy'].shape[1]  # nb of dimensions in our input space
+        self.space_shape = tuple([np.max(self.ds.set['ch2xy'][:,i]) for i in range(self.ds.set['ch2xy'].shape[1])]) # shape of our input space 
 
         # Normalize the coordinates to the range [0, 1]
         X_test_normed = torch.from_numpy((self.ds.set['ch2xy'] - np.min(self.ds.set['ch2xy'], axis=0)) /
@@ -376,6 +379,24 @@ class SimGPBO():
             dtype=torch.float64
         )
 
+        # Tensor to store the first dimension of the lengthscale (l1)
+        self.QI_hyperparams_lengthscale = torch.zeros(
+            (self.nb_emg, self.NB_REP, self.space_dim, self.NB_IT),
+            dtype=torch.float64
+        )
+
+        # Tensor to store the output standard deviation (outputscale)
+        self.QI_hyperparams_outputscale = torch.zeros(
+            (self.nb_emg, self.NB_REP, 1, self.NB_IT),
+            dtype=torch.float64
+        )
+
+        # Tensor to store the noise standard deviation
+        self.QI_hyperparams_noise = torch.zeros(
+            (self.nb_emg, self.NB_REP, 1, self.NB_IT),
+            dtype=torch.float64
+        )
+
     def botorch_AF(self, AF: str, gp, train_X: torch.Tensor, train_Y: torch.Tensor, X_test_normed: torch.Tensor) -> int:
         """Selects the next query point based on the acquisition function (AF) applied to the normalized test points, using botorch librairie.
 
@@ -540,6 +561,11 @@ class SimGPBO():
                 'outputscale': self.hyperparams_outputscale,
                 'noise': self.hyperparams_noise,
             })
+            save_dict.update({
+                'QI_lengthscale': self.QI_hyperparams_lengthscale,
+                'QI_outputscale': self.QI_hyperparams_outputscale,
+                'QI_noise': self.QI_hyperparams_noise,
+            })
 
 
         # Add state of the simulation
@@ -590,6 +616,9 @@ class SimGPBO():
             del self.std_calc_durations
         if hasattr(self, 'gp'):
             del self.gp
+
+    def HP_estimation(self, query_x, query_y) -> None:
+        pass
 
     def set_custom_gp_hyperparameters(self, kernel_type: str = 'rbf', noise_std: float = 0.1, output_std: float = 1, lengthscale: float = 0.05) -> None:
         """
@@ -708,7 +737,7 @@ class SimGPBO():
 
         return(query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams)
     
-    def gpytorch_gpbo(self, emg_i:int, r: int, i: int, response_type: str = 'valid') -> tuple[list, torch.Tensor, torch.Tensor, float, float, dict]:
+    def gpytorch_gpbo(self, emg_i:int, r: int, i: int, response_type: str = 'valid', HP_estimation = False) -> tuple[list, torch.Tensor, torch.Tensor, float, float, dict]:
         """Performs a single iteration of Gaussian Process Bayesian Optimization (GPBO) with the gpytorch ExactGP.
 
         This method selects the next query point using either a random or acquisition-based strategy,
@@ -806,6 +835,7 @@ class SimGPBO():
 
 
 
+
         ## ----- get posterior means and std ----- ##
 
         gp_mean_pred, gp_std_pred = self.gp.predict(self.X_test_normed) # GP prediction for the mean and std
@@ -815,11 +845,27 @@ class SimGPBO():
         gp_dur = tac_gp - tic_gp
         hyp_dur = tac_hyp - tic_hyp
 
+
+
+
+        ## ----- Estimate hyperparameters ----- ##
+
+        if HP_estimation:
+            if i == 0:
+                self.QI = QueriesInfo(self.space_shape)
+            self.QI.update_map(query_x=tuple(self.ds.set['ch2xy'][query_idx]-1), query_y=resp.astype(float))
+            self.QI.estimate_HP()
+
+
+
         # in order to compute the acquisition function for the next iteration
         self.last_used_train_X = train_X
         self.last_used_train_Y = train_Y
 
-        return(query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams)
+        if HP_estimation:
+            return(query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams, self.QI.hyperparams)
+        else:
+            return(query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams)
     
     def custom_gpbo(self, gp_origin: str, emg_i:int, r: int, i: int, response_type: str = 'valid') -> tuple[list, torch.Tensor, torch.Tensor, float, float, float]:
         """Performs a single iteration of Gaussian Process Bayesian Optimization (GPBO) with custom GP and AF.
@@ -984,8 +1030,8 @@ class SimGPBO():
                                     emg_i=emg_i, r=r, i=i, response_type=response_type
                                 )
                             elif gp_origin == 'gpytorch':
-                                last_query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams = self.gpytorch_gpbo(
-                                    emg_i=emg_i, r=r, i=i, response_type=response_type
+                                last_query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams, QI_hyperparams = self.gpytorch_gpbo(
+                                    emg_i=emg_i, r=r, i=i, response_type=response_type, HP_estimation=True
                                 )
                             else:
                                 last_query_idx, gp_mean_pred, gp_std_pred, gp_dur = self.custom_gpbo(
@@ -1030,6 +1076,11 @@ class SimGPBO():
                                     self.hyperparams_lengthscale[emg_i, r, dim, i] = hyperparams['lengthscale'][dim]
                                 self.hyperparams_outputscale[emg_i, r, 0, i] = hyperparams['outputscale']
                                 self.hyperparams_noise[emg_i, r, 0, i] = hyperparams['noise']
+                                for dim in range(self.space_dim):
+                                    self.QI_hyperparams_lengthscale[emg_i, r, dim, i] = QI_hyperparams['lengthscale'][dim]
+                                self.QI_hyperparams_outputscale[emg_i, r, 0, i] = QI_hyperparams['outputscale']
+                                self.QI_hyperparams_noise[emg_i, r, 0, i] = QI_hyperparams['noise']
+
 
                         
 

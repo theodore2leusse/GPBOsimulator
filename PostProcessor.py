@@ -126,6 +126,9 @@ class PostProcessor():
             self.hyperparams_lengthscale = self.data['lengthscale']
             self.hyperparams_outputscale = self.data['outputscale']
             self.hyperparams_noise = self.data['noise']
+            self.QI_hyperparams_lengthscale = self.data['QI_lengthscale']
+            self.QI_hyperparams_outputscale = self.data['QI_outputscale']
+            self.QI_hyperparams_noise = self.data['QI_noise']
 
     def exploration(self, emgs_idx: list[int] = None, REP_idx: list[int] = None, status: str = 'offline') ->  np.ndarray:
         """
