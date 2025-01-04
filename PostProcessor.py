@@ -126,9 +126,10 @@ class PostProcessor():
             self.hyperparams_lengthscale = self.data['lengthscale']
             self.hyperparams_outputscale = self.data['outputscale']
             self.hyperparams_noise = self.data['noise']
-            self.QI_hyperparams_lengthscale = self.data['QI_lengthscale']
-            self.QI_hyperparams_outputscale = self.data['QI_outputscale']
-            self.QI_hyperparams_noise = self.data['QI_noise']
+            # Vérifier si les clés existent avant d'affecter les valeurs
+            self.QI_hyperparams_lengthscale = self.data.get('QI_lengthscale', None)
+            self.QI_hyperparams_outputscale = self.data.get('QI_outputscale', None)
+            self.QI_hyperparams_noise = self.data.get('QI_noise', None)
 
     def exploration(self, emgs_idx: list[int] = None, REP_idx: list[int] = None, status: str = 'offline') ->  np.ndarray:
         """

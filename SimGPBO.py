@@ -29,7 +29,7 @@ from DataSet import DataSet
 # from GPBOcustom.FixedOnlineGP import FixedOnlineGP
 # from GPBOcustom.BOtorchModel import BOtorchModel
 # from GPBOcustom.GPytorchModel import GPytorchModel
-from GPcustom.models import FixedGP, FixedOnlineGP, BOtorchModel, GPytorchModel
+from GPcustom.models import FixedGP, FixedOnlineGP, BOtorchModel, GPytorchModel, GPytorchFixed
 from QueriesInfo import QueriesInfo
 
 class SimGPBO():
@@ -513,12 +513,13 @@ class SimGPBO():
             raise ValueError("response_type is not well defined")
         return(resp)
     
-    def npz_save(self, clock_storage: bool, hyperparams_storage: bool, mean_and_std_storage: bool, gp_origin: str = 'gpytorch', final: bool = False, emg_i: int = None, r: int = None) -> None:
+    def npz_save(self, clock_storage: bool, hyperparams_storage: bool, HP_estimation: bool, mean_and_std_storage: bool, gp_origin: str = 'gpytorch', final: bool = False, emg_i: int = None, r: int = None) -> None:
         """Saves the GPBO results to a .npz file, with optional storage of mean/std predictions and clock durations.
 
         Args:
             clock_storage (bool): Whether to save iteration and calculation durations.
             hyperparams_storage (bool): Whether to save hyperparams.
+            HP_estimation (bool, optional): If you have chosen the 'gpytorch method and want to use the QueriesInfo class to estimate the HP and save them.
             mean_and_std_storage (bool): Whether to save mean and standard deviation predictions.
             gp_origin (str, optional): Specifies the gp we will use in our simulation. Can be 'gpytroch', 'custom_FixedOnlineGP', 'custom_FixedOnlineGP_without_schur' or 'custom_FixedGP'. Defaults to 'gpytorch'. 
             final (bool, optional): If True, indicates final save. Defaults to False.
@@ -561,11 +562,12 @@ class SimGPBO():
                 'outputscale': self.hyperparams_outputscale,
                 'noise': self.hyperparams_noise,
             })
-            save_dict.update({
-                'QI_lengthscale': self.QI_hyperparams_lengthscale,
-                'QI_outputscale': self.QI_hyperparams_outputscale,
-                'QI_noise': self.QI_hyperparams_noise,
-            })
+            if HP_estimation:
+                save_dict.update({
+                    'QI_lengthscale': self.QI_hyperparams_lengthscale,
+                    'QI_outputscale': self.QI_hyperparams_outputscale,
+                    'QI_noise': self.QI_hyperparams_noise,
+                })
 
 
         # Add state of the simulation
@@ -616,9 +618,6 @@ class SimGPBO():
             del self.std_calc_durations
         if hasattr(self, 'gp'):
             del self.gp
-
-    def HP_estimation(self, query_x, query_y) -> None:
-        pass
 
     def set_custom_gp_hyperparameters(self, kernel_type: str = 'rbf', noise_std: float = 0.1, output_std: float = 1, lengthscale: float = 0.05) -> None:
         """
@@ -750,6 +749,7 @@ class SimGPBO():
             r (int): The current round of optimization.
             i (int): The current iteration within the round.
             response_type (str, optional): The type of response to retrieve. Defaults to 'valid'.
+            HP_estimation (bool, optional): If you have chosen the 'gpytorch method and want to use the QueriesInfo class to estimate the HP and save them. Default to False.
 
         Returns:
             tuple[list, torch.Tensor, torch.Tensor, float, float, float]:
@@ -771,7 +771,6 @@ class SimGPBO():
                                        mean=self.gp.mean.detach().numpy(), 
                                        std=self.gp.std.detach().numpy(), 
                                        emg_i=emg_i, r=r, i=i)
-            # print((emg_i, r, i),'    query_idx', query_idx)
         
         next_x = self.X_test_normed[query_idx]              # input coordonates for the next query
 
@@ -858,14 +857,202 @@ class SimGPBO():
 
 
 
-        # in order to compute the acquisition function for the next iteration
-        self.last_used_train_X = train_X
-        self.last_used_train_Y = train_Y
+        # # in order to compute the acquisition function for the next iteration
+        # self.last_used_train_X = train_X
+        # self.last_used_train_Y = train_Y
+        
+        return(query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams)
+    
+    def estimated_hp_gpytorch_gpbo(self, emg_i:int, r: int, i: int, response_type: str = 'valid', HP_estimation = False) -> tuple[list, torch.Tensor, torch.Tensor, float, float, dict]:
+        """Performs a single iteration of Gaussian Process Bayesian Optimization (GPBO) with the gpytorch ExactGP 
+        with the training of the hyperparameters using the QueriesInfo class.
+
+        This method selects the next query point using either a random or acquisition-based strategy,
+        retrieves the corresponding response, updates the training data, and fits a Gaussian Process
+        model to the updated data using the QueriesInfo class. It also computes the posterior mean and 
+        standard deviation for the specified test points.
+
+        Args:
+            emg_i (int): The index of the EMG signal being processed.
+            r (int): The current round of optimization.
+            i (int): The current iteration within the round.
+            response_type (str, optional): The type of response to retrieve. Defaults to 'valid'.
+            HP_estimation (bool, optional): If you have chosen the 'gpytorch method and want to use the QueriesInfo class to estimate the HP and save them. Default to False.
+
+        Returns:
+            tuple[list, torch.Tensor, torch.Tensor, float, float, float]:
+                - query_idx (list): The index of the selected query point.
+                - gp_mean_pred (torch.Tensor): The predicted mean values from the Gaussian Process,
+                  with shape (space_size,).
+                - gp_std_pred (torch.Tensor): The predicted standard deviation values from the Gaussian Process,
+                  with shape (space_size,).
+                - gp_dur (float): Duration of gp calculations in seconds.
+                - hyp_dur (float): Duration of hyperparameter optimization in seconds.
+                - hyperparams (dict): Optimized hyperparameters of the GP model.
+        """
+        ## ----- Select the next query and get a response ----- ##
+
+        if i < self.NB_RND: # we chose the next node randomly with next_x_idx
+            query_idx = self.rand_idx[emg_i, r, i]    
+        else: # we have to use an acquisition function to select the next query 
+            query_idx = self.custom_AF(AF=self.AF, 
+                                       mean=self.gp.mean.detach().numpy(), 
+                                       std=self.gp.std.detach().numpy(), 
+                                       emg_i=emg_i, r=r, i=i)
+        
+        next_x = self.X_test_normed[query_idx]              # input coordonates for the next query
+
+        resp = self.get_response(emg_i = emg_i, next_x_idx = query_idx, response_type = response_type)
+
+
+
+        ## ----- Update tensors ----- ##
+
+        self.P_test_x[emg_i, r, :, i] = next_x             # update the tensor 
+        self.P_test_x_idx[emg_i, r, 0, i] = query_idx      # update the tensor
+        self.P_test_y[emg_i, r, 0, i] = resp.astype(float) # update the tensor
+
+        train_X = self.P_test_x[emg_i, r, :, :int(i+1)]    # only focus on what have been updated in
+                                                           # P_test_x[emg_i, r] (2d-tensor)
+        train_X = train_X.T                                # transpose the tensor => shape(nb_queries, dim_input_space)
+
+        train_Y = self.P_test_y[emg_i, r, 0, :int(i+1)]    # only focus on what have been updated in
+                                                           # P_test_y[emg_i, r] (1d-tensor)
+        train_Y = train_Y[...,np.newaxis]                  # add a new final dimension in the tensor 
+                                                           # (2d-tensor) train_y is a column matrix
+        
+        if i == 0:
+            if resp != 0:
+                train_Y = train_Y/train_Y.max() # =1 
+        else:
+            train_Y = standardize(train_Y) # (data-mean)/std
+
+        train_Y = train_Y[:,0]
+
+        ## ----- get and fit the gp ----- ##
+
+        tic_gp = time.perf_counter()
+        tic_hyp = time.perf_counter()
+
+        if i == 0:
+            self.QI = QueriesInfo(self.space_shape)
+        self.QI.update_map(query_x=tuple(self.ds.set['ch2xy'][query_idx]-1), query_y=resp.astype(float))
+        self.QI.estimate_HP()
+
+        tac_hyp = time.perf_counter()
+            
+        self.likelihood = gpytorch.likelihoods.GaussianLikelihood()
+        self.gp = GPytorchFixed(
+            train_x=train_X, 
+            train_y=train_Y, 
+            likelihood=self.likelihood, 
+            kernel_type='Matern52',
+            **self.QI.hyperparams
+        )
+
+        self.gp.double()
+
+
+
+
+        ## ----- Extract hyperparameters ----- ##
+
+        hyperparams = self.gp.get_hyperparameters()
+
+
+
+
+        ## ----- get posterior means and std ----- ##
+
+        gp_mean_pred, gp_std_pred = self.gp.predict(self.X_test_normed) # GP prediction for the mean and std
+
+        tac_gp = time.perf_counter()
+
+        gp_dur = tac_gp - tic_gp
+        hyp_dur = tac_hyp - tic_hyp
+
+
+
+
+        ## ----- Estimate hyperparameters ----- ##
 
         if HP_estimation:
-            return(query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams, self.QI.hyperparams)
-        else:
-            return(query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams)
+            if i == 0:
+                self.QI = QueriesInfo(self.space_shape)
+            self.QI.update_map(query_x=tuple(self.ds.set['ch2xy'][query_idx]-1), query_y=resp.astype(float))
+            self.QI.estimate_HP()
+
+        
+        return(query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams)
+    
+    def estimated_gpytorch_gpbo(self, emg_i:int, r: int, i: int, response_type: str = 'valid') -> tuple[list, torch.Tensor, torch.Tensor, float, float, dict]:
+        """Performs a single iteration of Gaussian Process Bayesian Optimization (GPBO) with the gpytorch ExactGP and matrices 
+        from the class QueriesInfo
+
+        This method selects the next query point using either a random or acquisition-based strategy,
+        retrieves the corresponding response, updates the training data using the class QueriesInfo,
+        and fits a Gaussian Process model to the updated data. It also computes the posterior mean and 
+        standard deviation for the specified test points.
+
+        Args:
+            emg_i (int): The index of the EMG signal being processed.
+            r (int): The current round of optimization.
+            i (int): The current iteration within the round.
+            response_type (str, optional): The type of response to retrieve. Defaults to 'valid'.
+
+        Returns:
+            tuple[list, torch.Tensor, torch.Tensor, float, float, float]:
+                - query_idx (list): The index of the selected query point.
+                - gp_mean_pred (torch.Tensor): The predicted mean values from the Gaussian Process,
+                  with shape (space_size,).
+                - gp_std_pred (torch.Tensor): The predicted standard deviation values from the Gaussian Process,
+                  with shape (space_size,).
+                - gp_dur (float): Duration of gp calculations in seconds.
+                - hyp_dur (float): Duration of hyperparameter optimization in seconds.
+                - hyperparams (dict): Optimized hyperparameters of the GP model.
+        """
+        ## ----- Select the next query and get a response ----- ##
+
+        if i < self.NB_RND: # we chose the next node randomly with next_x_idx
+            query_idx = self.rand_idx[emg_i, r, i]    
+        else: # we have to use an acquisition function to select the next query 
+            query_idx = self.custom_AF(AF=self.AF, 
+                                       mean=self.gp.mean.detach().numpy(), 
+                                       std=self.gp.std.detach().numpy(), 
+                                       emg_i=emg_i, r=r, i=i)
+        
+        next_x = self.X_test_normed[query_idx]              # input coordonates for the next query
+
+        resp = self.get_response(emg_i = emg_i, next_x_idx = query_idx, response_type = response_type)
+
+
+
+        ## ----- Update tensors ----- ##
+
+        self.P_test_x[emg_i, r, :, i] = next_x             # update the tensor 
+        self.P_test_x_idx[emg_i, r, 0, i] = query_idx      # update the tensor
+        self.P_test_y[emg_i, r, 0, i] = resp.astype(float) # update the tensor
+
+
+        tic_gp = time.perf_counter()
+        if i == 0:
+            self.QI = QueriesInfo(self.space_shape)
+        self.QI.update_map(query_x=tuple(self.ds.set['ch2xy'][query_idx]-1), query_y=resp.astype(float))
+        tic_hyp = time.perf_counter()
+        self.QI.estimate_HP()
+        tac_hyp = time.perf_counter()
+
+        hyperparams = self.QI.hyperparams
+
+        self.gp = self.QI.gp
+        gp_mean_pred, gp_std_pred = self.gp.predict(self.X_test_normed)
+
+        tac_gp = time.perf_counter()
+
+        gp_dur = tac_gp - tic_gp
+        hyp_dur = tac_hyp - tic_hyp
+        
+        return(query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams)
     
     def custom_gpbo(self, gp_origin: str, emg_i:int, r: int, i: int, response_type: str = 'valid') -> tuple[list, torch.Tensor, torch.Tensor, float, float, float]:
         """Performs a single iteration of Gaussian Process Bayesian Optimization (GPBO) with custom GP and AF.
@@ -964,7 +1151,7 @@ class SimGPBO():
 
     def run_simulations(self, manual_seed: bool = False, clock_storage: bool = True, hyperparams_storage: bool = False,
                         mean_and_std_storage: bool = False, intermediate_save: bool = False, 
-                        response_type: str = 'valid', gp_origin: str = 'botorch') -> None:
+                        response_type: str = 'valid', gp_origin: str = 'botorch', HP_estimation: bool = False) -> None:
         """Execute multiple simulations for Gaussian Process Bayesian Optimization (GPBO) over a defined number of
         electro-myographic (EMG) signals and repetitions.  
 
@@ -976,6 +1163,7 @@ class SimGPBO():
             intermediate_save (bool, optional): If True, save the data collected after each eng loop. Defaults to False.
             response_type (str, optional): Can be 'valid', 'realistic' or 'mean'. Find out how to select answers for a particular query. Defaults to 'valid'.
             gp_origin (str, optional): Specifies the gp we will use in our simulation. Can be 'botorch', 'custom_FixedOnlineGP', 'custom_FixedOnlineGP_without_schur' or 'custom_FixedGP'. Defaults to 'botorch'.
+            HP_estimation (bool, optional): If you have chosen the 'gpytorch method and want to use the QueriesInfo class to estimate the HP and save them. Default to False. 
         """
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", module='linear_operator.utils.cholesky')
@@ -1030,8 +1218,16 @@ class SimGPBO():
                                     emg_i=emg_i, r=r, i=i, response_type=response_type
                                 )
                             elif gp_origin == 'gpytorch':
-                                last_query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams, QI_hyperparams = self.gpytorch_gpbo(
-                                    emg_i=emg_i, r=r, i=i, response_type=response_type, HP_estimation=True
+                                last_query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams = self.gpytorch_gpbo(
+                                    emg_i=emg_i, r=r, i=i, response_type=response_type, HP_estimation=HP_estimation
+                                )
+                            elif gp_origin == 'estimated_gpytorch':
+                                last_query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams = self.estimated_gpytorch_gpbo(
+                                    emg_i=emg_i, r=r, i=i, response_type=response_type
+                                )
+                            elif gp_origin == 'estimated_hp_gpytorch':
+                                last_query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams = self.estimated_hp_gpytorch_gpbo(
+                                    emg_i=emg_i, r=r, i=i, response_type=response_type
                                 )
                             else:
                                 last_query_idx, gp_mean_pred, gp_std_pred, gp_dur = self.custom_gpbo(
@@ -1076,10 +1272,11 @@ class SimGPBO():
                                     self.hyperparams_lengthscale[emg_i, r, dim, i] = hyperparams['lengthscale'][dim]
                                 self.hyperparams_outputscale[emg_i, r, 0, i] = hyperparams['outputscale']
                                 self.hyperparams_noise[emg_i, r, 0, i] = hyperparams['noise']
-                                for dim in range(self.space_dim):
-                                    self.QI_hyperparams_lengthscale[emg_i, r, dim, i] = QI_hyperparams['lengthscale'][dim]
-                                self.QI_hyperparams_outputscale[emg_i, r, 0, i] = QI_hyperparams['outputscale']
-                                self.QI_hyperparams_noise[emg_i, r, 0, i] = QI_hyperparams['noise']
+                                if HP_estimation:
+                                    for dim in range(self.space_dim):
+                                        self.QI_hyperparams_lengthscale[emg_i, r, dim, i] = self.QI.hyperparams['lengthscale'][dim]
+                                    self.QI_hyperparams_outputscale[emg_i, r, 0, i] = self.QI.hyperparams['outputscale']
+                                    self.QI_hyperparams_noise[emg_i, r, 0, i] = self.QI.hyperparams['noise']
 
 
                         
@@ -1105,6 +1302,6 @@ class SimGPBO():
         print(f"Elapsed time: {self.elapsed_time} seconds")
 
         ## ----- Final save in the npz file ----- ##
-        self.npz_save(clock_storage = clock_storage, hyperparams_storage=hyperparams_storage, mean_and_std_storage = mean_and_std_storage, gp_origin = gp_origin, final = True)
+        self.npz_save(clock_storage = clock_storage, hyperparams_storage=hyperparams_storage, HP_estimation=HP_estimation, mean_and_std_storage = mean_and_std_storage, gp_origin = gp_origin, final = True)
 
 
