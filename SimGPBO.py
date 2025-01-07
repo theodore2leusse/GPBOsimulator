@@ -750,6 +750,8 @@ class SimGPBO():
             i (int): The current iteration within the round.
             response_type (str, optional): The type of response to retrieve. Defaults to 'valid'.
             HP_estimation (bool, optional): If you have chosen the 'gpytorch method and want to use the QueriesInfo class to estimate the HP and save them. Default to False.
+            outputscale TODO
+            noise TODO
 
         Returns:
             tuple[list, torch.Tensor, torch.Tensor, float, float, float]:
@@ -811,8 +813,8 @@ class SimGPBO():
                 train_Y,
                 self.likelihood,
                 kernel_type='Matern52',
-                outputscale= None, 
-                noise = None
+                outputscale=outputscale, 
+                noise=noise
             )
         else:
             self.gp.set_train_data(
@@ -939,7 +941,7 @@ class SimGPBO():
         if i == 0:
             self.QI = QueriesInfo(self.space_shape)
         self.QI.update_map(query_x=tuple(self.ds.set['ch2xy'][query_idx]-1), query_y=resp.astype(float))
-        self.QI.estimate_HP(outputscale= None, noise = None)
+        self.QI.estimate_HP(outputscale=outputscale, noise=noise)
 
         tac_hyp = time.perf_counter()
             
@@ -1041,7 +1043,7 @@ class SimGPBO():
             self.QI = QueriesInfo(self.space_shape)
         self.QI.update_map(query_x=tuple(self.ds.set['ch2xy'][query_idx]-1), query_y=resp.astype(float))
         tic_hyp = time.perf_counter()
-        self.QI.estimate_HP(outputscale= None, noise = None)
+        self.QI.estimate_HP(outputscale=outputscale, noise=noise)
         tac_hyp = time.perf_counter()
 
         hyperparams = self.QI.hyperparams
