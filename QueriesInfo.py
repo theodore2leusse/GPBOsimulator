@@ -43,7 +43,7 @@ class QueriesInfo:
                 mean_queries_list.append([self.idx2coord(idx), self.mean_map[idx]])
         return mean_queries_list
     
-    def estimate_HP(self):
+    def estimate_HP(self, outputscale: float = None, noise: float = None):
         mean_queries = self.get_mean_queries()
         train_x = torch.tensor([list(item[0]) for item in mean_queries], dtype=torch.float64)
         train_y = torch.tensor([item[1] for item in mean_queries], dtype=torch.float64)
@@ -55,7 +55,9 @@ class QueriesInfo:
                         train_x=train_x,
                         train_y=train_y,
                         likelihood=self.likelihood,
-                        kernel_type='Matern52'
+                        kernel_type='Matern52',
+                        outputscale=None, 
+                        noise=None
                     )
         else:
             train_y = standardize(train_y)

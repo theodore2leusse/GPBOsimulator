@@ -736,7 +736,7 @@ class SimGPBO():
 
         return(query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams)
     
-    def gpytorch_gpbo(self, emg_i:int, r: int, i: int, response_type: str = 'valid', HP_estimation = False) -> tuple[list, torch.Tensor, torch.Tensor, float, float, dict]:
+    def gpytorch_gpbo(self, emg_i:int, r: int, i: int, response_type: str = 'valid', HP_estimation = False, outputscale: float = None, noise: float = None) -> tuple[list, torch.Tensor, torch.Tensor, float, float, dict]:
         """Performs a single iteration of Gaussian Process Bayesian Optimization (GPBO) with the gpytorch ExactGP.
 
         This method selects the next query point using either a random or acquisition-based strategy,
@@ -810,7 +810,9 @@ class SimGPBO():
                 train_X,
                 train_Y,
                 self.likelihood,
-                kernel_type='Matern52'
+                kernel_type='Matern52',
+                outputscale= None, 
+                noise = None
             )
         else:
             self.gp.set_train_data(
@@ -863,7 +865,7 @@ class SimGPBO():
         
         return(query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams)
     
-    def estimated_hp_gpytorch_gpbo(self, emg_i:int, r: int, i: int, response_type: str = 'valid', HP_estimation = False) -> tuple[list, torch.Tensor, torch.Tensor, float, float, dict]:
+    def estimated_hp_gpytorch_gpbo(self, emg_i:int, r: int, i: int, response_type: str = 'valid', HP_estimation = False, outputscale: float = None, noise: float = None) -> tuple[list, torch.Tensor, torch.Tensor, float, float, dict]:
         """Performs a single iteration of Gaussian Process Bayesian Optimization (GPBO) with the gpytorch ExactGP 
         with the training of the hyperparameters using the QueriesInfo class.
 
@@ -937,7 +939,7 @@ class SimGPBO():
         if i == 0:
             self.QI = QueriesInfo(self.space_shape)
         self.QI.update_map(query_x=tuple(self.ds.set['ch2xy'][query_idx]-1), query_y=resp.astype(float))
-        self.QI.estimate_HP()
+        self.QI.estimate_HP(outputscale= None, noise = None)
 
         tac_hyp = time.perf_counter()
             
@@ -985,7 +987,7 @@ class SimGPBO():
         
         return(query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams)
     
-    def estimated_gpytorch_gpbo(self, emg_i:int, r: int, i: int, response_type: str = 'valid') -> tuple[list, torch.Tensor, torch.Tensor, float, float, dict]:
+    def estimated_gpytorch_gpbo(self, emg_i:int, r: int, i: int, response_type: str = 'valid', outputscale: float = None, noise: float = None) -> tuple[list, torch.Tensor, torch.Tensor, float, float, dict]:
         """Performs a single iteration of Gaussian Process Bayesian Optimization (GPBO) with the gpytorch ExactGP and matrices 
         from the class QueriesInfo
 
@@ -1039,7 +1041,7 @@ class SimGPBO():
             self.QI = QueriesInfo(self.space_shape)
         self.QI.update_map(query_x=tuple(self.ds.set['ch2xy'][query_idx]-1), query_y=resp.astype(float))
         tic_hyp = time.perf_counter()
-        self.QI.estimate_HP()
+        self.QI.estimate_HP(outputscale= None, noise = None)
         tac_hyp = time.perf_counter()
 
         hyperparams = self.QI.hyperparams
@@ -1151,7 +1153,8 @@ class SimGPBO():
 
     def run_simulations(self, manual_seed: bool = False, clock_storage: bool = True, hyperparams_storage: bool = False,
                         mean_and_std_storage: bool = False, intermediate_save: bool = False, 
-                        response_type: str = 'valid', gp_origin: str = 'botorch', HP_estimation: bool = False) -> None:
+                        response_type: str = 'valid', gp_origin: str = 'botorch', HP_estimation: bool = False,
+                        outputscale: float = None, noise: float = None) -> None:
         """Execute multiple simulations for Gaussian Process Bayesian Optimization (GPBO) over a defined number of
         electro-myographic (EMG) signals and repetitions.  
 
@@ -1164,6 +1167,8 @@ class SimGPBO():
             response_type (str, optional): Can be 'valid', 'realistic' or 'mean'. Find out how to select answers for a particular query. Defaults to 'valid'.
             gp_origin (str, optional): Specifies the gp we will use in our simulation. Can be 'botorch', 'custom_FixedOnlineGP', 'custom_FixedOnlineGP_without_schur' or 'custom_FixedGP'. Defaults to 'botorch'.
             HP_estimation (bool, optional): If you have chosen the 'gpytorch method and want to use the QueriesInfo class to estimate the HP and save them. Default to False. 
+            outputscale TODO
+            noise TODO
         """
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", module='linear_operator.utils.cholesky')
@@ -1219,15 +1224,15 @@ class SimGPBO():
                                 )
                             elif gp_origin == 'gpytorch':
                                 last_query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams = self.gpytorch_gpbo(
-                                    emg_i=emg_i, r=r, i=i, response_type=response_type, HP_estimation=HP_estimation
+                                    emg_i=emg_i, r=r, i=i, response_type=response_type, HP_estimation=HP_estimation, outputscale=outputscale, noise=noise
                                 )
                             elif gp_origin == 'estimated_gpytorch':
                                 last_query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams = self.estimated_gpytorch_gpbo(
-                                    emg_i=emg_i, r=r, i=i, response_type=response_type
+                                    emg_i=emg_i, r=r, i=i, response_type=response_type, outputscale=outputscale, noise=noise
                                 )
                             elif gp_origin == 'estimated_hp_gpytorch':
                                 last_query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams = self.estimated_hp_gpytorch_gpbo(
-                                    emg_i=emg_i, r=r, i=i, response_type=response_type
+                                    emg_i=emg_i, r=r, i=i, response_type=response_type, outputscale=outputscale, noise=noise
                                 )
                             else:
                                 last_query_idx, gp_mean_pred, gp_std_pred, gp_dur = self.custom_gpbo(
