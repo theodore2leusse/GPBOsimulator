@@ -43,7 +43,7 @@ class QueriesInfo:
                 mean_queries_list.append([self.idx2coord(idx), self.mean_map[idx]])
         return mean_queries_list
     
-    def estimate_HP(self, outputscale: float = None, noise: float = None):
+    def estimate_HP(self, outputscale: float = None, noise: float = None, max_iters_training_gp: int = 100):
         mean_queries = self.get_mean_queries()
         train_x = torch.tensor([list(item[0]) for item in mean_queries], dtype=torch.float64)
         train_y = torch.tensor([item[1] for item in mean_queries], dtype=torch.float64)
@@ -70,5 +70,5 @@ class QueriesInfo:
         self.gp.double()
 
         # Find optimal model hyperparameters
-        self.gp.train_model(train_x, train_y, max_iters=100, lr=0.1, Verbose=False)
+        self.gp.train_model(train_x, train_y, max_iters=max_iters_training_gp, lr=0.1, Verbose=False)
         self.hyperparams = self.gp.get_hyperparameters()
