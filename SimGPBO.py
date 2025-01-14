@@ -20,6 +20,7 @@ import numpy as np
 from utils import *
 import warnings
 import time
+import copy
 from tqdm import tqdm
 from scipy.stats import norm
 
@@ -1046,7 +1047,6 @@ class SimGPBO():
         self.P_test_x_idx[emg_i, r, 0, i] = query_idx      # update the tensor
         self.P_test_y[emg_i, r, 0, i] = resp.astype(float) # update the tensor
 
-
         tic_gp = time.perf_counter()
         if i == 0:
             self.QI = QueriesInfo(self.space_shape)
@@ -1054,11 +1054,13 @@ class SimGPBO():
         tic_hyp = time.perf_counter()
         self.QI.estimate_HP(outputscale=outputscale, noise=noise, max_iters_training_gp=max_iters_training_gp)
         tac_hyp = time.perf_counter()
-
+        
         hyperparams = self.QI.hyperparams
 
-        self.gp = self.QI.gp
-        gp_mean_pred, gp_std_pred = self.gp.predict(self.X_test_normed)
+        gp_mean_pred, gp_std_pred = self.QI.predict(self.X_test_normed, self.ds.set['ch2xy']) 
+        self.gp = copy.deepcopy(self.QI.gp)
+        self.gp.mean = copy.deepcopy(gp_mean_pred)
+        self.gp.std = copy.deepcopy(gp_std_pred) 
 
         tac_gp = time.perf_counter()
 

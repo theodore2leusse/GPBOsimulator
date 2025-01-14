@@ -3,6 +3,7 @@ import torch
 import gpytorch
 from GPcustom.models import GPytorchModel
 from botorch.utils.transforms import standardize
+import time
 
 class QueriesInfo:
     def __init__(self, space_shape):
@@ -23,6 +24,12 @@ class QueriesInfo:
             new_mean_map = ((self.query_map[query_x]-1)*self.mean_map[query_x] + query_y) / self.query_map[query_x]
             self.var_map[query_x] = ((self.query_map[query_x]-1) * (self.var_map[query_x] + (new_mean_map-self.mean_map[query_x])**2) + (query_y-self.mean_map[query_x])**2) / self.query_map[query_x]
             self.mean_map[query_x] = new_mean_map
+
+    def mat2vec(self, mat, ch2xy):
+        vec = np.zeros(len(ch2xy))
+        for i in range(len(ch2xy)):
+            vec[i] = mat[*(ch2xy[i]-1)]
+        return vec
 
     def idx2coord(self, idx):
         coord = []
@@ -72,3 +79,11 @@ class QueriesInfo:
         # Find optimal model hyperparameters
         self.gp.train_model(train_x, train_y, max_iters=max_iters_training_gp, lr=0.1, Verbose=False)
         self.hyperparams = self.gp.get_hyperparameters()
+
+    def predict(self, test_X, ch2xy):
+        """l'idée serait de faire une méthode predict où pred_std = self.gp.std/(self.query_map+1)"""
+        gp_mean_pred, gp_std_pred = self.gp.predict(test_X)
+        gp_std_pred = gp_std_pred/(self.mat2vec(self.query_map, ch2xy) + 1)
+
+        return gp_mean_pred, gp_std_pred
+        
