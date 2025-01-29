@@ -737,7 +737,9 @@ class SimGPBO():
 
         return(query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams)
     
-    def gpytorch_gpbo(self, emg_i:int, r: int, i: int, response_type: str = 'valid', HP_estimation = False, outputscale: float = None, noise: float = None, max_iters_training_gp: int = 100) -> tuple[list, torch.Tensor, torch.Tensor, float, float, dict]:
+    def gpytorch_gpbo(self, emg_i:int, r: int, i: int, response_type: str = 'valid', HP_estimation = False, 
+                      outputscale: float = None, noise: float = None, 
+                      max_iters_training_gp: int = 100, lr_training_gp: float = 0.1) -> tuple[list, torch.Tensor, torch.Tensor, float, float, dict]:
         """Performs a single iteration of Gaussian Process Bayesian Optimization (GPBO) with the gpytorch ExactGP.
 
         This method selects the next query point using either a random or acquisition-based strategy,
@@ -754,6 +756,7 @@ class SimGPBO():
             outputscale (float, optional): if float, fixed and define the hyperparameter outputscale. Default to None.
             noise (float, optional): if float, fixed and define the hyperparameter noise variance. Default to None.
             max_iters_training_gp (int, optional): if int, define the maximum number of iterations for optimization of the hyperparameters of the GP. Default to 100.
+            lr_training_gp (float, optional): define the learning rate for ADAM which will optimize HPs according to the Marginal Log-Likelihood. Default is 0.1.
 
         Returns:
             tuple[list, torch.Tensor, torch.Tensor, float, float, float]:
@@ -829,7 +832,7 @@ class SimGPBO():
 
         # Find optimal model hyperparameters
         tic_hyp = time.perf_counter()
-        self.gp.train_model(train_X, train_Y, max_iters=max_iters_training_gp, lr=0.1, Verbose=False)
+        self.gp.train_model(train_X, train_Y, max_iters=max_iters_training_gp, lr=lr_training_gp, Verbose=False)
         tac_hyp = time.perf_counter()
 
 
@@ -869,7 +872,9 @@ class SimGPBO():
         
         return(query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams)
     
-    def estimated_hp_gpytorch_gpbo(self, emg_i:int, r: int, i: int, response_type: str = 'valid', HP_estimation = False, outputscale: float = None, noise: float = None, max_iters_training_gp: int = 100) -> tuple[list, torch.Tensor, torch.Tensor, float, float, dict]:
+    def estimated_hp_gpytorch_gpbo(self, emg_i:int, r: int, i: int, response_type: str = 'valid', HP_estimation = False, 
+                                   outputscale: float = None, noise: float = None, 
+                                   max_iters_training_gp: int = 100, lr_training_gp: float = 0.1) -> tuple[list, torch.Tensor, torch.Tensor, float, float, dict]:
         """Performs a single iteration of Gaussian Process Bayesian Optimization (GPBO) with the gpytorch ExactGP 
         with the training of the hyperparameters using the QueriesInfo class.
 
@@ -887,6 +892,7 @@ class SimGPBO():
             outputscale (float, optional): if float, fixed and define the hyperparameter outputscale. Default to None.
             noise (float, optional): if float, fixed and define the hyperparameter noise variance. Default to None.
             max_iters_training_gp (int, optional): if int, define the maximum number of iterations for optimization of the hyperparameters of the GP. Default to 100.
+            lr_training_gp (float, optional): define the learning rate for ADAM which will optimize HPs according to the Marginal Log-Likelihood. Default is 0.1.
 
         Returns:
             tuple[list, torch.Tensor, torch.Tensor, float, float, float]:
@@ -946,7 +952,7 @@ class SimGPBO():
         if i == 0:
             self.QI = QueriesInfo(self.space_shape)
         self.QI.update_map(query_x=tuple(self.ds.set['ch2xy'][query_idx]-1), query_y=resp.astype(float))
-        self.QI.estimate_HP(outputscale=outputscale, noise=noise, max_iters_training_gp=max_iters_training_gp)
+        self.QI.estimate_HP(outputscale=outputscale, noise=noise, max_iters_training_gp=max_iters_training_gp, lr=lr_training_gp)
 
         tac_hyp = time.perf_counter()
             
@@ -996,7 +1002,7 @@ class SimGPBO():
     
     def estimated_gpytorch_gpbo(self, emg_i:int, r: int, i: int, response_type: str = 'valid', 
                                 outputscale: float = None, noise: float = None, 
-                                max_iters_training_gp: int = 100) -> tuple[list, torch.Tensor, torch.Tensor, float, float, dict]:
+                                max_iters_training_gp: int = 100, lr_training_gp: float = 0.1) -> tuple[list, torch.Tensor, torch.Tensor, float, float, dict]:
         """Performs a single iteration of Gaussian Process Bayesian Optimization (GPBO) with the gpytorch ExactGP and matrices 
         from the class QueriesInfo
 
@@ -1013,6 +1019,7 @@ class SimGPBO():
             outputscale (float, optional): if float, fixed and define the hyperparameter outputscale. Default to None.
             noise (float, optional): if float, fixed and define the hyperparameter noise variance. Default to None.
             max_iters_training_gp (int, optional): if int, define the maximum number of iterations for optimization of the hyperparameters of the GP. Default to 100.
+            lr_training_gp (float, optional): define the learning rate for ADAM which will optimize HPs according to the Marginal Log-Likelihood. Default is 0.1.
 
         Returns:
             tuple[list, torch.Tensor, torch.Tensor, float, float, float]:
@@ -1052,7 +1059,7 @@ class SimGPBO():
             self.QI = QueriesInfo(self.space_shape)
         self.QI.update_map(query_x=tuple(self.ds.set['ch2xy'][query_idx]-1), query_y=resp.astype(float))
         tic_hyp = time.perf_counter()
-        self.QI.estimate_HP(outputscale=outputscale, noise=noise, max_iters_training_gp=max_iters_training_gp)
+        self.QI.estimate_HP(outputscale=outputscale, noise=noise, max_iters_training_gp=max_iters_training_gp, lr=lr_training_gp)
         tac_hyp = time.perf_counter()
         
         hyperparams = self.QI.hyperparams
@@ -1230,8 +1237,10 @@ class SimGPBO():
 
                             if i<10:
                                 nb_iters_training_gp = max(60, max_iters_training_gp)
+                                lr_training_gp = 0.1
                             else:
                                 nb_iters_training_gp = max_iters_training_gp
+                                lr_training_gp = 0.05
 
                             ## ----- GPBO ----- ##
 
@@ -1242,17 +1251,20 @@ class SimGPBO():
                             elif gp_origin == 'gpytorch':
                                 last_query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams = self.gpytorch_gpbo(
                                     emg_i=emg_i, r=r, i=i, response_type=response_type, HP_estimation=HP_estimation, 
-                                    outputscale=outputscale, noise=noise, max_iters_training_gp=nb_iters_training_gp
+                                    outputscale=outputscale, noise=noise, 
+                                    max_iters_training_gp=nb_iters_training_gp, lr_training_gp=lr_training_gp
                                 )
                             elif gp_origin == 'estimated_gpytorch':
                                 last_query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams = self.estimated_gpytorch_gpbo(
                                     emg_i=emg_i, r=r, i=i, response_type=response_type, 
-                                    outputscale=outputscale, noise=noise, max_iters_training_gp=nb_iters_training_gp
+                                    outputscale=outputscale, noise=noise, 
+                                    max_iters_training_gp=nb_iters_training_gp, lr_training_gp=lr_training_gp
                                 )
                             elif gp_origin == 'estimated_hp_gpytorch':
                                 last_query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams = self.estimated_hp_gpytorch_gpbo(
                                     emg_i=emg_i, r=r, i=i, response_type=response_type, 
-                                    outputscale=outputscale, noise=noise, max_iters_training_gp=nb_iters_training_gp
+                                    outputscale=outputscale, noise=noise, 
+                                    max_iters_training_gp=nb_iters_training_gp, lr_training_gp=lr_training_gp
                                 )
                             else:
                                 last_query_idx, gp_mean_pred, gp_std_pred, gp_dur = self.custom_gpbo(
