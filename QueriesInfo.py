@@ -22,8 +22,8 @@ def matern52_kernel(i, j, shape, lengthscale):
     x, y = np.indices(shape)
     
     # Compute normalized distances from the center (i, j)
-    dx = (x - i) / lengthscale[0]  # Normalized distance in the x-direction
-    dy = (y - j) / lengthscale[1]  # Normalized distance in the y-direction
+    dx = (x - i) / (lengthscale[0] * (shape[0]-1))  # Normalized distance in the x-direction
+    dy = (y - j) / (lengthscale[1] * (shape[1]-1))  # Normalized distance in the y-direction
     r = np.sqrt(dx**2 + dy**2)     # Euclidean distance (anisotropic if lx != ly)
     
     # Matern52 kernel formula

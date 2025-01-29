@@ -1002,7 +1002,7 @@ class SimGPBO():
     
     def estimated_gpytorch_gpbo(self, emg_i:int, r: int, i: int, response_type: str = 'valid', 
                                 outputscale: float = None, noise: float = None, 
-                                max_iters_training_gp: int = 100, lr_training_gp: float = 0.1) -> tuple[list, torch.Tensor, torch.Tensor, float, float, dict]:
+                                max_iters_training_gp: int = 100, lr_training_gp: float = 0.1, alpha_param_QIpredict: float = 1) -> tuple[list, torch.Tensor, torch.Tensor, float, float, dict]:
         """Performs a single iteration of Gaussian Process Bayesian Optimization (GPBO) with the gpytorch ExactGP and matrices 
         from the class QueriesInfo
 
@@ -1020,6 +1020,7 @@ class SimGPBO():
             noise (float, optional): if float, fixed and define the hyperparameter noise variance. Default to None.
             max_iters_training_gp (int, optional): if int, define the maximum number of iterations for optimization of the hyperparameters of the GP. Default to 100.
             lr_training_gp (float, optional): define the learning rate for ADAM which will optimize HPs according to the Marginal Log-Likelihood. Default is 0.1.
+            alpha_param_QIpredict (float, ptional): it is used as a parameter in `QI.predict()`. Defaults to 1.
 
         Returns:
             tuple[list, torch.Tensor, torch.Tensor, float, float, float]:
@@ -1064,7 +1065,7 @@ class SimGPBO():
         
         hyperparams = self.QI.hyperparams
 
-        gp_mean_pred, gp_std_pred = self.QI.predict(self.X_test_normed, self.ds.set['ch2xy']) 
+        gp_mean_pred, gp_std_pred = self.QI.predict(self.X_test_normed, self.ds.set['ch2xy'], alpha=alpha_param_QIpredict) 
         self.gp = copy.deepcopy(self.QI.gp)
         self.gp.mean = copy.deepcopy(gp_mean_pred)
         self.gp.std = copy.deepcopy(gp_std_pred) 
@@ -1174,7 +1175,7 @@ class SimGPBO():
     def run_simulations(self, manual_seed: bool = False, clock_storage: bool = True, hyperparams_storage: bool = False,
                         mean_and_std_storage: bool = False, intermediate_save: bool = False, 
                         response_type: str = 'valid', gp_origin: str = 'botorch', HP_estimation: bool = False,
-                        outputscale: float = None, noise: float = None, max_iters_training_gp: int = 100) -> None:
+                        outputscale: float = None, noise: float = None, max_iters_training_gp: int = 100, alpha_param_QIpredict: float = 1) -> None:
         """Execute multiple simulations for Gaussian Process Bayesian Optimization (GPBO) over a defined number of
         electro-myographic (EMG) signals and repetitions.  
 
@@ -1190,6 +1191,7 @@ class SimGPBO():
             outputscale (float, optional): if float, fixed and define the hyperparameter outputscale. Default to None.
             noise (float, optional): if float, fixed and define the hyperparameter noise variance. Default to None.
             max_iters_training_gp (int, optional): if int, define the maximum number of iterations for optimization of the hyperparameters of the GP. Default to 100.
+            alpha_param_QIpredict (float, ptional): Only useful if `gp_origin` is `'estimated_gpytorch'`. In this case, it is used as a parameter in `QI.predict()`. Defaults to 1.
         """
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", module='linear_operator.utils.cholesky')
@@ -1258,7 +1260,8 @@ class SimGPBO():
                                 last_query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams = self.estimated_gpytorch_gpbo(
                                     emg_i=emg_i, r=r, i=i, response_type=response_type, 
                                     outputscale=outputscale, noise=noise, 
-                                    max_iters_training_gp=nb_iters_training_gp, lr_training_gp=lr_training_gp
+                                    max_iters_training_gp=nb_iters_training_gp, lr_training_gp=lr_training_gp,
+                                    alpha_param_QIpredict=alpha_param_QIpredict
                                 )
                             elif gp_origin == 'estimated_hp_gpytorch':
                                 last_query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams = self.estimated_hp_gpytorch_gpbo(
