@@ -3,7 +3,6 @@ import torch
 import gpytorch
 from GPcustom.models import GPytorchModel
 from botorch.utils.transforms import standardize
-# from scipy.ndimage import gaussian_filter
 import time
 
 def matern52_kernel(i, j, shape, lengthscale):
@@ -152,9 +151,10 @@ class QueriesInfo:
         self.hyperparams = self.gp.get_hyperparameters()
 
     def predict(self, test_X, ch2xy, alpha: float = 1):
-        """l'idée serait de faire une méthode predict où pred_std = self.gp.std/(self.query_map+1)"""
-        # blurred_query_map = gaussian_filter(self.query_map, mode='constant', sigma=[0.6,0.6], radius=max(self.space_shape))
-        blurred_query_map = apply_matern52_kernels(self.query_map, [x * alpha for x in self.hyperparams['lengthscale']])
+        if alpha > 0:
+            blurred_query_map = apply_matern52_kernels(self.query_map, [x * alpha for x in self.hyperparams['lengthscale']])
+        else:
+            blurred_query_map = self.query_map
         gp_mean_pred, gp_std_pred = self.gp.predict(test_X)
         gp_std_pred = gp_std_pred/(self.mat2vec(blurred_query_map, ch2xy) + 1)
 
