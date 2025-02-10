@@ -131,7 +131,7 @@ class PostProcessor():
             self.QI_hyperparams_outputscale = self.data.get('QI_outputscale', None)
             self.QI_hyperparams_noise = self.data.get('QI_noise', None)
 
-    def exploration(self, emgs_idx: list[int] = None, REP_idx: list[int] = None, status: str = 'offline') ->  np.ndarray:
+    def exploration(self, emgs_idx: list[int] = None, REP_idx: list[int] = None, measured_location: bool = False) ->  np.ndarray:
         """
         Calculate the exploration metric
 
@@ -154,7 +154,10 @@ class PostProcessor():
             rep_id = 0
             for rep in REP_idx:
                 for it in range(self.nb_it): 
-                    best_x = self.best_pred_x[emg_i, rep, 0, it] # best prediction's electrode_id (int)
+                    if measured_location:
+                        best_x = self.best_pred_x_measured[emg_i, rep, 0, it]
+                    else:
+                        best_x = self.best_pred_x[emg_i, rep, 0, it] # best prediction's electrode_id (int)
                     perf_explore[emg_i_id, rep_id, it] = ((self.ds_set['sorted_respMean'][best_x, emg_i] - 
                                                            np.min(self.ds_set['sorted_respMean'][:, emg_i])) /
                                                           (np.max(self.ds_set['sorted_respMean'][:, emg_i]) -

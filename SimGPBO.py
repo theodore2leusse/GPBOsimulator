@@ -32,6 +32,8 @@ from DataSet import DataSet
 # from GPBOcustom.GPytorchModel import GPytorchModel
 from GPcustom.models import FixedGP, FixedOnlineGP, BOtorchModel, GPytorchModel, GPytorchFixed
 from QueriesInfo import QueriesInfo
+from NNasOnlineGP import NNasOnlineGP
+from NNutils import MapUpdateNetwork_7, load_my_model
 
 class SimGPBO():
     """
@@ -1171,11 +1173,71 @@ class SimGPBO():
         gp_dur = tac_gp - tic_gp
 
         return(query_idx, gp_mean_pred, gp_std_pred, gp_dur)
+    
+    def NN_gpbo(self, emg_i:int, r: int, i: int, response_type: str = 'valid', 
+                      outputscale: float = 1., noise: float = 0.05, lengthscale=[0.3, 0.3]) -> tuple[list, torch.Tensor, torch.Tensor, float, float, dict]:
+        """
+        """
+        ## ----- Select the next query and get a response ----- ##
+
+        if i < self.NB_RND: # we chose the next node randomly with next_x_idx
+            query_idx = self.rand_idx[emg_i, r, i]    
+        else: # we have to use an acquisition function to select the next query 
+            query_idx = self.custom_AF(AF=self.AF, 
+                                       mean=self.gp.mean.detach().numpy(), 
+                                       std=self.gp.std.detach().numpy(), 
+                                       emg_i=emg_i, r=r, i=i)
+        
+        next_x = self.X_test_normed[query_idx]              # input coordonates for the next query
+
+        resp = self.get_response(emg_i = emg_i, next_x_idx = query_idx, response_type = response_type)
+
+
+
+        ## ----- Update tensors ----- ##
+
+        self.P_test_x[emg_i, r, :, i] = next_x             # update the tensor 
+        self.P_test_x_idx[emg_i, r, 0, i] = query_idx      # update the tensor
+        self.P_test_y[emg_i, r, 0, i] = resp.astype(float) # update the tensor
+
+        # train_X = self.P_test_x[emg_i, r, :, :int(i+1)]    # only focus on what have been updated in
+        #                                                    # P_test_x[emg_i, r] (2d-tensor)
+        # train_X = train_X.T                                # transpose the tensor => shape(nb_queries, dim_input_space)
+
+        # train_Y = self.P_test_y[emg_i, r, 0, :int(i+1)]    # only focus on what have been updated in
+        #                                                    # P_test_y[emg_i, r] (1d-tensor)
+        # train_Y = train_Y[...,np.newaxis]                  # add a new final dimension in the tensor 
+        #                                                    # (2d-tensor) train_y is a column matrix
+        # if i == 0:
+        #     if resp != 0:
+        #         train_Y = train_Y/train_Y.max() # =1 
+        # else:
+        #     train_Y = standardize(train_Y) # (data-mean)/std
+
+        # train_Y = train_Y[:,0]
+
+        ## ----- get and fit the gp ----- ##
+
+        tic_gp = time.perf_counter()
+            
+        if i == 0:
+            self.gp = NNasOnlineGP(self.model, self.space_shape, self.ds.set['ch2xy'])
+            self.gp.get_elem_mean_and_std_fixed_lengthscales(kernel_type='Matern52', 
+                                    noise=0.05, outputscale=1, lengthscale=[0.3, 0.3])
+            
+        gp_mean_pred, gp_std_pred = self.gp.update_with_query(query_x=next_x, query_y=resp.astype(float))
+
+        tac_gp = time.perf_counter()
+
+        gp_dur = tac_gp - tic_gp
+        
+        return(query_idx, gp_mean_pred, gp_std_pred, gp_dur)
 
     def run_simulations(self, manual_seed: bool = False, clock_storage: bool = True, hyperparams_storage: bool = False,
                         mean_and_std_storage: bool = False, intermediate_save: bool = False, 
-                        response_type: str = 'valid', gp_origin: str = 'botorch', HP_estimation: bool = False,
-                        outputscale: float = None, noise: float = None, max_iters_training_gp: int = 100, alpha_param_QIpredict: float = 1) -> None:
+                        response_type: str = 'valid', gp_origin: str = 'botorch', 
+                        HP_estimation: bool = False, outputscale: float = None, noise: float = None, 
+                        max_iters_training_gp: int = 100, alpha_param_QIpredict: float = 1) -> None:
         """Execute multiple simulations for Gaussian Process Bayesian Optimization (GPBO) over a defined number of
         electro-myographic (EMG) signals and repetitions.  
 
@@ -1186,7 +1248,7 @@ class SimGPBO():
             mean_and_std_storage (bool, optional): If True, initializes storage for mean and standard deviation tensors from the GP model. Defaults to False.
             intermediate_save (bool, optional): If True, save the data collected after each eng loop. Defaults to False.
             response_type (str, optional): Can be 'valid', 'realistic' or 'mean'. Find out how to select answers for a particular query. Defaults to 'valid'.
-            gp_origin (str, optional): Specifies the gp we will use in our simulation. Can be 'botorch', 'custom_FixedOnlineGP', 'custom_FixedOnlineGP_without_schur' or 'custom_FixedGP'. Defaults to 'botorch'.
+            gp_origin (str, optional): Specifies the gp we will use in our simulation. Can be 'botorch', 'custom_FixedOnlineGP', 'custom_FixedOnlineGP_without_schur', 'custom_FixedGP' or 'NN'. Defaults to 'botorch'.
             HP_estimation (bool, optional): If you have chosen the 'gpytorch method and want to use the QueriesInfo class to estimate the HP and save them. Default to False. 
             outputscale (float, optional): if float, fixed and define the hyperparameter outputscale. Default to None.
             noise (float, optional): if float, fixed and define the hyperparameter noise variance. Default to None.
@@ -1210,6 +1272,10 @@ class SimGPBO():
                 self.initialize_storage_mean_and_std_tensors()
             if hyperparams_storage:
                 self.initialize_storage_hyperparams()
+            if gp_origin == 'NN':
+                my_model = MapUpdateNetwork_7()
+                self.model, train_losses, validation_losses = load_my_model(
+                    'model/iFmodel7_C4_2to50que_150epochs_2560kaugtraindata_batchsize256_minlr8.pth', my_model, plot=False)
 
             custom_OnlineGP_bool = (gp_origin == 'custom_FixedOnlineGP') or (gp_origin == 'custom_FixedOnlineGP_without_schur')
 
@@ -1269,6 +1335,12 @@ class SimGPBO():
                                     outputscale=outputscale, noise=noise, 
                                     max_iters_training_gp=nb_iters_training_gp, lr_training_gp=lr_training_gp
                                 )
+                            elif gp_origin == 'NN':
+                                last_query_idx, gp_mean_pred, gp_std_pred, gp_dur = self.NN_gpbo(
+                                    emg_i=emg_i, r=r, i=i, response_type=response_type, 
+                                    outputscale=1., noise=0.05, lengthscale=[0.3, 0.3]
+                                )
+
                             else:
                                 last_query_idx, gp_mean_pred, gp_std_pred, gp_dur = self.custom_gpbo(
                                     gp_origin = gp_origin, emg_i = emg_i, r = r, i = i, response_type = response_type
