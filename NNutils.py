@@ -1,8 +1,17 @@
+# sciNeurotech Lab 
+# Theodore
+
 import torch 
 import torch.nn as nn
 import numpy as np 
 import math
 import matplotlib.pyplot as plt 
+
+"""
+This module contains utility functions and classes for using the NNs in the project.
+
+For example, this file contains everything needed to use a neural network with architecture 7. (see simuNN.ipynb & simGPBO.py for usage examples)
+"""
 
 class MapUpdateNetwork_7(nn.Module):
     """
@@ -123,32 +132,48 @@ def evaluate_model(model, test_loader, criterion_function, device="cpu"):
             test_loss += loss.item()
     return test_loss / len(test_loader)
 
-def load_my_model(model_path, model_t, optimizer_t=None, scheduler_t=None, evaluate=False, plot=False):
+def load_my_model(model_path, model_t, optimizer_t=None, scheduler_t=None, plot=False):
+    """
+    Loads a model from a checkpoint file, along with its optimizer and scheduler states if provided.
+    Optionally evaluates the model on a test set and plots the training and validation losses.
 
-    # Load model file
+    Args:
+        model_path (str): Path to the checkpoint file.
+        model_t (nn.Module): Model instance to load the weights into.
+        optimizer_t (torch.optim.Optimizer, optional): Optimizer instance to load the state into. Defaults to None.
+        scheduler_t (torch.optim.lr_scheduler._LRScheduler, optional): Scheduler instance to load the state into. Defaults to None.
+        plot (bool, optional): Whether to plot the training and validation losses. Defaults to False.
+
+    Returns:
+        Depending on the provided arguments, returns the model, optimizer, scheduler, and losses.
+    """
+    # Determine the device to use (GPU if available, otherwise CPU)
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    # Load the checkpoint file
     if device == "cpu":
         checkpoint = torch.load(model_path, weights_only=True, map_location=torch.device('cpu'))
     else:
         checkpoint = torch.load(model_path, weights_only=True)
 
-    # model weights 
+    # Load model weights
     model_t.load_state_dict(checkpoint['model_state_dict'])
 
     if optimizer_t is not None:
-        # optimizer state 
+        # Load optimizer state
         optimizer_t.load_state_dict(checkpoint['optimizer_state_dict'])
     if scheduler_t is not None:
-        # scheduler state 
+        # Load scheduler state
         scheduler_t.load_state_dict(checkpoint['scheduler_state_dict'])
 
-    # losses
+    # Load training and validation losses
     train_losses_t = checkpoint['train losses']
     validation_losses_t = checkpoint['validation losses']
     
     if plot:
-        plt.plot(np.arange(len(train_losses_t))+1, train_losses_t, label='train losses')
-        plt.plot(np.arange(len(validation_losses_t))+1, validation_losses_t, label='validation losses')
+        # Plot the training and validation losses
+        plt.plot(np.arange(len(train_losses_t)) + 1, train_losses_t, label='train losses')
+        plt.plot(np.arange(len(validation_losses_t)) + 1, validation_losses_t, label='validation losses')
         plt.legend()
         plt.xlabel('Number of epochs')
         plt.ylabel('MSE loss (log scale)')
@@ -156,16 +181,12 @@ def load_my_model(model_path, model_t, optimizer_t=None, scheduler_t=None, evalu
         plt.title("Evolution of losses during training")
         plt.show()
 
-    if evaluate:
-        # Evaluate the model on the test set
-        test_loss = evaluate_model(model_t, test_loader, custom_loss, device)
-        print(f"Test Loss: {test_loss:.8f}")
-
+    # Return the appropriate objects based on the provided arguments
     if (optimizer_t is None) and (scheduler_t is None):
         return model_t, train_losses_t, validation_losses_t
     elif (optimizer_t is not None) and (scheduler_t is None):
         return model_t, optimizer_t, train_losses_t, validation_losses_t
     elif (optimizer_t is None) and (scheduler_t is not None):
         return model_t, scheduler_t, train_losses_t, validation_losses_t
-    else: 
+    else:
         return model_t, optimizer_t, scheduler_t, train_losses_t, validation_losses_t

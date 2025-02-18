@@ -7,7 +7,6 @@ __pycache__/
 # Ignore draft and simu_GPBO files
 draft.ipynb
 simu_GPBO.py
-gif
 
 gpbo_*
 *.png

@@ -1,9 +1,15 @@
+# sciNeurotech Lab 
+# Theodore
+
+"""
+This file contains the QueriesInfo class, which is used to manage and update query information for Bayesian optimization.
+"""
+
 import numpy as np
 import torch
 import gpytorch
 from GPcustom.models import GPytorchModel
 from botorch.utils.transforms import standardize
-import time
 
 def matern52_kernel(i, j, shape, lengthscale):
     """
@@ -75,52 +81,123 @@ def apply_matern52_kernels(counts_array, lengthscale):
                 
     return result
 
+import numpy as np
+import torch
+import gpytorch
+
 class QueriesInfo:
+    """
+    A class to manage and update query information for Bayesian optimization. 
+    Also allows us to make Sparse Variational Gaussian Process (cf. methods estimated_gpytorch & estimated_hp_gpytorch in SimGPBO.py).
+
+    Attributes:
+        space_shape (tuple): The shape of the search space.
+        query_map (np.ndarray): A map to keep track of the number of queries at each point in the search space.
+        mean_map (np.ndarray): A map to store the mean of the query results at each point in the search space.
+        var_map (np.ndarray): A map to store the variance of the query results at each point in the search space.
+    """
+
     def __init__(self, space_shape):
+        """
+        Initializes the QueriesInfo object.
+
+        Args:
+            space_shape (tuple): The shape of the search space.
+        """
         self.space_shape = space_shape
         self.query_map = np.full(space_shape, 0)
         self.mean_map = np.full(space_shape, np.nan)
         self.var_map = np.full(space_shape, np.nan)
-        
+
     def update_map(self, query_x, query_y):
+        """
+        Updates the query map, mean map, and variance map with new query results.
+
+        Args:
+            query_x (tuple): The coordinates of the query in the search space.
+            query_y (float): The result of the query.
+        """
         self.query_map[query_x] += 1
         if self.query_map[query_x] == 1:
             self.mean_map[query_x] = query_y
         elif self.query_map[query_x] == 2:
             new_mean_map = (query_y + self.mean_map[query_x]) / 2
-            self.var_map[query_x] = ((query_y-new_mean_map)**2 + (self.mean_map[query_x]-new_mean_map)**2) / 2
+            self.var_map[query_x] = ((query_y - new_mean_map) ** 2 + (self.mean_map[query_x] - new_mean_map) ** 2) / 2
             self.mean_map[query_x] = new_mean_map
         else:
-            new_mean_map = ((self.query_map[query_x]-1)*self.mean_map[query_x] + query_y) / self.query_map[query_x]
-            self.var_map[query_x] = ((self.query_map[query_x]-1) * (self.var_map[query_x] + (new_mean_map-self.mean_map[query_x])**2) + (query_y-self.mean_map[query_x])**2) / self.query_map[query_x]
+            new_mean_map = ((self.query_map[query_x] - 1) * self.mean_map[query_x] + query_y) / self.query_map[query_x]
+            self.var_map[query_x] = ((self.query_map[query_x] - 1) * (self.var_map[query_x] + (new_mean_map - self.mean_map[query_x]) ** 2) + (query_y - self.mean_map[query_x]) ** 2) / self.query_map[query_x]
             self.mean_map[query_x] = new_mean_map
 
     def mat2vec(self, mat, ch2xy):
+        """
+        Converts a matrix to a vector based on a given mapping.
+
+        Args:
+            mat (np.ndarray): The input matrix.
+            ch2xy (list): A list of coordinates to extract from the matrix.
+
+        Returns:
+            np.ndarray: A vector containing the values from the matrix at the specified coordinates.
+        """
         vec = np.zeros(len(ch2xy))
         for i in range(len(ch2xy)):
-            vec[i] = mat[*(ch2xy[i]-1)]
+            vec[i] = mat[*(ch2xy[i] - 1)]
         return vec
 
     def idx2coord(self, idx):
+        """
+        Converts indices to normalized coordinates.
+
+        Args:
+            idx (tuple): The indices to convert.
+
+        Returns:
+            tuple: The normalized coordinates.
+        """
         coord = []
         for i in range(len(idx)):
-            coord.append(idx[i]/(self.space_shape[i]-1))
+            coord.append(idx[i] / (self.space_shape[i] - 1))
         return tuple(coord)
-    
+
     def coord2idx(self, coord):
+        """
+        Converts normalized coordinates to indices.
+
+        Args:
+            coord (tuple): The normalized coordinates to convert.
+
+        Returns:
+            tuple: The indices.
+        """
         idx = []
         for i in range(len(coord)):
-            idx.append(round(coord[i]*(self.space_shape[i]-1)))
+            idx.append(round(coord[i] * (self.space_shape[i] - 1)))
         return tuple(idx)
-    
+
     def get_mean_queries(self):
+        """
+        Retrieves a list of mean queries and their coordinates.
+
+        Returns:
+            list: A list of tuples containing the coordinates and mean query values.
+        """
         mean_queries_list = []
         for idx in np.ndindex(self.space_shape):
             if not np.isnan(self.mean_map[idx]):
                 mean_queries_list.append([self.idx2coord(idx), self.mean_map[idx]])
         return mean_queries_list
-    
+
     def estimate_HP(self, outputscale: float = None, noise: float = None, max_iters_training_gp: int = 100, lr: float = 0.1):
+        """
+        Estimates the hyperparameters of the Gaussian Process model.
+
+        Args:
+            outputscale (float, optional): The output scale for the GP model. Defaults to None.
+            noise (float, optional): The noise level for the GP model. Defaults to None.
+            max_iters_training_gp (int, optional): The maximum number of iterations for training the GP model. Defaults to 100.
+            lr (float, optional): The learning rate for training the GP model. Defaults to 0.1.
+        """
         mean_queries = self.get_mean_queries()
         train_x = torch.tensor([list(item[0]) for item in mean_queries], dtype=torch.float64)
         train_y = torch.tensor([item[1] for item in mean_queries], dtype=torch.float64)
@@ -129,13 +206,13 @@ class QueriesInfo:
             train_y = torch.tensor([1.], dtype=torch.float64)
             self.likelihood = gpytorch.likelihoods.GaussianLikelihood()
             self.gp = GPytorchModel(
-                        train_x=train_x,
-                        train_y=train_y,
-                        likelihood=self.likelihood,
-                        kernel_type='Matern52',
-                        outputscale=None, 
-                        noise=None
-                    )
+                train_x=train_x,
+                train_y=train_y,
+                likelihood=self.likelihood,
+                kernel_type='Matern52',
+                outputscale=None,
+                noise=None
+            )
         else:
             train_y = standardize(train_y)
             self.gp.set_train_data(
@@ -151,12 +228,24 @@ class QueriesInfo:
         self.hyperparams = self.gp.get_hyperparameters()
 
     def predict(self, test_X, ch2xy, alpha: float = 1):
+        """
+        Predicts the mean and standard deviation for a given set of test points.
+
+        Args:
+            test_X (torch.Tensor): The test points for prediction.
+            ch2xy (list): A list of coordinates to extract from the query map.
+            alpha (float, optional): A scaling factor for the blurring kernel. Defaults to 1.
+
+        Returns:
+            tuple: The predicted mean and standard deviation.
+        """
         if alpha > 0:
             blurred_query_map = apply_matern52_kernels(self.query_map, [x * alpha for x in self.hyperparams['lengthscale']])
         else:
             blurred_query_map = self.query_map
         gp_mean_pred, gp_std_pred = self.gp.predict(test_X)
-        gp_std_pred = gp_std_pred/(self.mat2vec(blurred_query_map, ch2xy) + 1)
+        gp_std_pred = gp_std_pred / (self.mat2vec(blurred_query_map, ch2xy) + 1)
 
         return gp_mean_pred, gp_std_pred
+
         
