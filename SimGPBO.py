@@ -7,10 +7,7 @@ in this file, we will define a class in order simulate GPBO
 # import lib
 import torch
 import gpytorch
-from botorch.models import SingleTaskGP
-from botorch.utils.transforms import standardize, normalize
-from botorch.fit import fit_gpytorch_mll
-from gpytorch.mlls import ExactMarginalLogLikelihood
+from botorch.utils.transforms import standardize
 from botorch.acquisition.analytic import (UpperConfidenceBound, 
                                           ExpectedImprovement,
                                           NoisyExpectedImprovement, 
@@ -26,10 +23,6 @@ from scipy.stats import norm
 
 # import file 
 from DataSet import DataSet
-# from GPBOcustom.FixedGP import FixedGP
-# from GPBOcustom.FixedOnlineGP import FixedOnlineGP
-# from GPBOcustom.BOtorchModel import BOtorchModel
-# from GPBOcustom.GPytorchModel import GPytorchModel
 from GPcustom.models import FixedGP, FixedOnlineGP, BOtorchModel, GPytorchModel, GPytorchFixed
 from QueriesInfo import QueriesInfo
 from NNasOnlineGP import NNasOnlineGP
