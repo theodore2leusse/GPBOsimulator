@@ -740,7 +740,7 @@ class SimGPBO():
         return(query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams)
     
     def gpytorch_gpbo(self, emg_i:int, r: int, i: int, response_type: str = 'valid', HP_estimation = False, 
-                      outputscale: float = None, noise: float = None, 
+                      outputscale: float = None, noise: float = None, lengthscale=None,  
                       max_iters_training_gp: int = 100, lr_training_gp: float = 0.1) -> tuple[list, torch.Tensor, torch.Tensor, float, float, dict]:
         """Performs a single iteration of Gaussian Process Bayesian Optimization (GPBO) with the gpytorch ExactGP.
 
@@ -812,30 +812,49 @@ class SimGPBO():
         ## ----- get and fit the gp ----- ##
 
         tic_gp = time.perf_counter()
-            
-        if i == 0:
-            self.likelihood = gpytorch.likelihoods.GaussianLikelihood()
-            self.gp = GPytorchModel(
-                train_X,
-                train_Y,
-                self.likelihood,
-                kernel_type='Matern52',
-                outputscale=outputscale, 
-                noise=noise
-            )
+
+        if lengthscale is None:  
+            if i == 0:
+                self.likelihood = gpytorch.likelihoods.GaussianLikelihood()
+                self.gp = GPytorchModel(
+                    train_X,
+                    train_Y,
+                    self.likelihood,
+                    kernel_type='Matern52',
+                    outputscale=outputscale, 
+                    noise=noise
+                )
+            else:
+                self.gp.set_train_data(
+                    train_X,
+                    train_Y,
+                    strict=False,
+                )
+
+            self.gp.double()
+
+            # Find optimal model hyperparameters
+            tic_hyp = time.perf_counter()
+            self.gp.train_model(train_X, train_Y, max_iters=max_iters_training_gp, lr=lr_training_gp, Verbose=False)
+            tac_hyp = time.perf_counter()
+            hyp_dur = tac_hyp - tic_hyp
+
         else:
-            self.gp.set_train_data(
-                train_X,
-                train_Y,
-                strict=False,
+            # ATTENTION you have to check if outputscale and noise are not None !!!
+            fixed_params = {
+                'lengthscale': lengthscale,
+                'outputscale': outputscale,
+                'noise': noise
+            }
+            self.likelihood = gpytorch.likelihoods.GaussianLikelihood()
+            self.gp = GPytorchFixed(
+                train_X, train_Y, self.likelihood, 
+                kernel_type='Matern52',
+                **fixed_params
             )
-
-        self.gp.double()
-
-        # Find optimal model hyperparameters
-        tic_hyp = time.perf_counter()
-        self.gp.train_model(train_X, train_Y, max_iters=max_iters_training_gp, lr=lr_training_gp, Verbose=False)
-        tac_hyp = time.perf_counter()
+            self.gp.double()
+            hyp_dur = 0
+            
 
 
 
@@ -853,7 +872,6 @@ class SimGPBO():
         tac_gp = time.perf_counter()
 
         gp_dur = tac_gp - tic_gp
-        hyp_dur = tac_hyp - tic_hyp
 
 
 
@@ -865,12 +883,6 @@ class SimGPBO():
                 self.QI = QueriesInfo(self.space_shape)
             self.QI.update_map(query_x=tuple(self.ds.set['ch2xy'][query_idx]-1), query_y=resp.astype(float))
             self.QI.estimate_HP()
-
-
-
-        # # in order to compute the acquisition function for the next iteration
-        # self.last_used_train_X = train_X
-        # self.last_used_train_Y = train_Y
         
         return(query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams)
     
@@ -1200,22 +1212,6 @@ class SimGPBO():
         self.P_test_x_idx[emg_i, r, 0, i] = query_idx      # update the tensor
         self.P_test_y[emg_i, r, 0, i] = resp.astype(float) # update the tensor
 
-        # train_X = self.P_test_x[emg_i, r, :, :int(i+1)]    # only focus on what have been updated in
-        #                                                    # P_test_x[emg_i, r] (2d-tensor)
-        # train_X = train_X.T                                # transpose the tensor => shape(nb_queries, dim_input_space)
-
-        # train_Y = self.P_test_y[emg_i, r, 0, :int(i+1)]    # only focus on what have been updated in
-        #                                                    # P_test_y[emg_i, r] (1d-tensor)
-        # train_Y = train_Y[...,np.newaxis]                  # add a new final dimension in the tensor 
-        #                                                    # (2d-tensor) train_y is a column matrix
-        # if i == 0:
-        #     if resp != 0:
-        #         train_Y = train_Y/train_Y.max() # =1 
-        # else:
-        #     train_Y = standardize(train_Y) # (data-mean)/std
-
-        # train_Y = train_Y[:,0]
-
         ## ----- get and fit the gp ----- ##
 
         tic_gp = time.perf_counter()
@@ -1236,7 +1232,7 @@ class SimGPBO():
     def run_simulations(self, manual_seed: bool = False, clock_storage: bool = True, hyperparams_storage: bool = False,
                         mean_and_std_storage: bool = False, intermediate_save: bool = False, 
                         response_type: str = 'valid', gp_origin: str = 'botorch', 
-                        HP_estimation: bool = False, outputscale: float = None, noise: float = None, 
+                        HP_estimation: bool = False, outputscale: float = None, noise: float = None, lengthscale=None,
                         max_iters_training_gp: int = 100, alpha_param_QIpredict: float = 1) -> None:
         """Execute multiple simulations for Gaussian Process Bayesian Optimization (GPBO) over a defined number of
         electro-myographic (EMG) signals and repetitions.  
@@ -1319,7 +1315,7 @@ class SimGPBO():
                             elif gp_origin == 'gpytorch':
                                 last_query_idx, gp_mean_pred, gp_std_pred, gp_dur, hyp_dur, hyperparams = self.gpytorch_gpbo(
                                     emg_i=emg_i, r=r, i=i, response_type=response_type, HP_estimation=HP_estimation, 
-                                    outputscale=outputscale, noise=noise, 
+                                    outputscale=outputscale, noise=noise, lengthscale=lengthscale, 
                                     max_iters_training_gp=nb_iters_training_gp, lr_training_gp=lr_training_gp
                                 )
                             elif gp_origin == 'estimated_gpytorch':

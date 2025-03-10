@@ -19,7 +19,7 @@ The main file is `SimGPBO.py`, where you can find the class `SimGPBO`, which wil
 
 `Postprocessor` class performs post processing with the `.npz` files in the `results` folder. This class is used in the `results.ipynb` notebook.
 
-`QueriesInfo` class allows to use a SVGP (sparse variational gaussian process) that we will use in the methods `estimated_gpytorch_gpbo` & `estimated_hp_gpytorch_gpbo` from `SimGPBO` class. 
+`QueriesInfo` class allows to use a SGP (sparse gaussian process) that we will use in the methods `estimated_gpytorch_gpbo` & `estimated_hp_gpytorch_gpbo` from `SimGPBO` class. 
 
 `NNasOnlineGP` class allows to use a NN as an online GP that we will use in the method `NN_gpbo` from `SimGPBO` class.
 
@@ -40,7 +40,7 @@ The project is organized as follows:
 ├── 📄NNasOnlineGP.py       # class that allow us to use a NN as a surrogate model for bayesian optimisation (cf. `NN_gpbo` method in SimGPBO )
 ├── 📄NNutils.py            # Utils for using NN for BO
 ├── 📄Postprocessor.py      # Class used for post process the `.npz files in `results`.
-├── 📄QueriesInfo.py        # class that define our SVGP (cf. `estimated_gpytorch_gpbo` & `estimated_hp_gpytorch_gpbo` methods in `SimGPBO` )
+├── 📄QueriesInfo.py        # class that define our SGP (cf. `estimated_gpytorch_gpbo` & `estimated_hp_gpytorch_gpbo` methods in `SimGPBO` )
 ├── 📄SimGPBO.py            # class used to set and run the simulations
 ├── 📄simulation.ipynb      # Jupyter notebook that uses `SimGPBO` class to set & run simulations.
 ├── 📄results.ipynb         # Jupyter notebook that uses `Postprocessor` class to postprocess the simulations.

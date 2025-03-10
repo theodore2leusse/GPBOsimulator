@@ -88,7 +88,7 @@ import gpytorch
 class QueriesInfo:
     """
     A class to manage and update query information for Bayesian optimization. 
-    Also allows us to make Sparse Variational Gaussian Process (cf. methods estimated_gpytorch & estimated_hp_gpytorch in SimGPBO.py).
+    Also allows us to make Sparse Gaussian Process (cf. methods estimated_gpytorch & estimated_hp_gpytorch in SimGPBO.py).
 
     Attributes:
         space_shape (tuple): The shape of the search space.
